@@ -155,7 +155,13 @@ final class MediaLibrary: ObservableObject {
     @discardableResult
     func addSMB(_ location: SMBMediaLocation, fileSize: Int64? = nil, sidecars: [String] = []) -> MediaItem? {
         let source = MediaSource.smb(location)
-        if let existing = items.first(where: { $0.source == source }) { return existing }
+        if let existing = items.first(where: { $0.source == source }) {
+            if !sidecars.isEmpty, existing.mediaInfo?.sidecarSubtitles != sidecars {
+                setSidecars(existing.id, sidecars: sidecars)
+                return item(existing.id) ?? existing
+            }
+            return existing
+        }
         let parsed = FilenameParser.parse(location.path, fileSize: fileSize, sidecars: sidecars)
         let entry = MediaItem(
             title: parsed.cleanTitle,
@@ -169,7 +175,13 @@ final class MediaLibrary: ObservableObject {
     @discardableResult
     func addWebDAV(_ location: WebDAVMediaLocation, fileSize: Int64? = nil, sidecars: [String] = []) -> MediaItem? {
         let source = MediaSource.webdav(location)
-        if let existing = items.first(where: { $0.source == source }) { return existing }
+        if let existing = items.first(where: { $0.source == source }) {
+            if !sidecars.isEmpty, existing.mediaInfo?.sidecarSubtitles != sidecars {
+                setSidecars(existing.id, sidecars: sidecars)
+                return item(existing.id) ?? existing
+            }
+            return existing
+        }
         let parsed = FilenameParser.parse(location.path, fileSize: fileSize, sidecars: sidecars)
         let entry = MediaItem(
             title: parsed.cleanTitle,
@@ -310,7 +322,8 @@ final class MediaLibrary: ObservableObject {
             guard !items.contains(where: { $0.source == source }) else { continue }
             let vals = try? fileURL.resourceValues(forKeys: [.fileSizeKey])
             let size = vals?.fileSize.map(Int64.init)
-            let parsed = FilenameParser.parse(fileURL.lastPathComponent, fileSize: size)
+            let localSubs = FolderSubtitleMatcher.scanLocalDirectory(for: fileURL).map(\.path)
+            let parsed = FilenameParser.parse(fileURL.lastPathComponent, fileSize: size, sidecars: localSubs)
             discovered.append(MediaItem(
                 title: parsed.cleanTitle,
                 source: source,
@@ -324,6 +337,14 @@ final class MediaLibrary: ObservableObject {
     }
 
     // MARK: - Mutations & Persistence
+
+    func setSidecars(_ id: UUID, sidecars: [String]) {
+        update(id) { item in
+            var info = item.mediaInfo ?? MediaTechnicalInfo()
+            info.sidecarSubtitles = sidecars
+            item.mediaInfo = info
+        }
+    }
 
     func toggleFavorite(_ id: UUID) {
         update(id) { $0.favorite.toggle() }

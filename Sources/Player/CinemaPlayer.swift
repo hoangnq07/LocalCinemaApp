@@ -81,7 +81,9 @@ struct CinemaPlayer: View {
             ZStack {
                 Color.black.ignoresSafeArea()
 
-                MPVSurface { layer, edrAvailable, maxFPS in
+                MPVSurface(onResize: { newSize in
+                    player.handleSurfaceResize(newSize)
+                }) { layer, edrAvailable, maxFPS in
                     guard !closing else { return }
                     let config = PlaybackConfiguration(
                         startTime: item.progress < 0.95 ? item.position : 0,
@@ -142,6 +144,9 @@ struct CinemaPlayer: View {
                     drawerOverlay(tab: activeDrawer, size: geometry.size)
                 }
             }
+            .onChange(of: geometry.size) { newSize in
+                isLandscape = newSize.width > newSize.height
+            }
         }
         .statusBarHidden(!controls)
         .persistentSystemOverlays(controls ? .automatic : .hidden)
@@ -181,6 +186,7 @@ struct CinemaPlayer: View {
             closing = true
             persist()
             player.close()
+            AppOrientationDelegate.setOrientation(.allButUpsideDown)
         }
     }
 
@@ -310,10 +316,6 @@ struct CinemaPlayer: View {
     private func hudOverlay(size: CGSize) -> some View {
         VStack(spacing: 0) {
             topBar
-            if hasActiveEnhancements {
-                activeEnhancementBadges
-                    .padding(.top, 6)
-            }
             Spacer(minLength: 0)
             centerControls
             Spacer(minLength: 0)
@@ -323,7 +325,7 @@ struct CinemaPlayer: View {
         .padding(.vertical, 10)
         .background(
             LinearGradient(
-                colors: [.black.opacity(0.68), .clear, .clear, .black.opacity(0.76)],
+                colors: [.black.opacity(0.64), .clear, .clear, .black.opacity(0.74)],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -340,84 +342,54 @@ struct CinemaPlayer: View {
             || status.thermalThrottled
     }
 
-    private var activeEnhancementBadges: some View {
-        HStack(spacing: 6) {
-            if status.neuralUpscalingActive {
-                Text(status.casSharpenActive ? "FSRCNNX ×2 + CAS đang chạy" : "FSRCNNX ×2 đang chạy")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(CinemaStyle.accent.opacity(0.22), in: Capsule())
-                    .overlay(Capsule().strokeBorder(CinemaStyle.accent.opacity(0.45), lineWidth: 1))
-                    .foregroundStyle(CinemaStyle.accent)
-            }
-            if status.sdrToHDRActive {
-                Text("SDR → HDR")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(CinemaStyle.gold.opacity(0.24), in: Capsule())
-                    .overlay(Capsule().strokeBorder(CinemaStyle.gold.opacity(0.45), lineWidth: 1))
-                    .foregroundStyle(CinemaStyle.gold)
-            } else if status.nativeHDRActive {
-                Text("HDR · EDR")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(CinemaStyle.gold.opacity(0.24), in: Capsule())
-                    .overlay(Capsule().strokeBorder(CinemaStyle.gold.opacity(0.45), lineWidth: 1))
-                    .foregroundStyle(CinemaStyle.gold)
-            }
-            if status.interpolationActive {
-                Text("Nội suy")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(CinemaStyle.accent.opacity(0.22), in: Capsule())
-                    .overlay(Capsule().strokeBorder(CinemaStyle.accent.opacity(0.45), lineWidth: 1))
-                    .foregroundStyle(CinemaStyle.accent)
-            }
-            if status.thermalThrottled {
-                Text("Giảm tải nhiệt")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(CinemaStyle.gold.opacity(0.24), in: Capsule())
-                    .overlay(Capsule().strokeBorder(CinemaStyle.gold.opacity(0.45), lineWidth: 1))
-                    .foregroundStyle(CinemaStyle.gold)
-            }
-            Spacer(minLength: 0)
-        }
-    }
-
     private var topBar: some View {
-        HStack(alignment: .top, spacing: 10) {
-            iconButton("Đóng trình phát", icon: "xmark", size: 40) {
+        HStack(spacing: 10) {
+            iconButton("Đóng trình phát", icon: "xmark", size: 38) {
                 dismiss()
             }
 
-            VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 7) {
                 Text(item.displayTitle)
-                    .font(.headline.weight(.bold))
+                    .font(.subheadline.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
                 if let size = status.videoSize {
                     Text(size)
-                        .font(.caption2.weight(.semibold))
+                        .font(.caption2.monospacedDigit())
                         .foregroundStyle(CinemaStyle.muted)
+                        .lineLimit(1)
+                }
+
+                if hasActiveEnhancements {
+                    HStack(spacing: 4) {
+                        if status.neuralUpscalingActive {
+                            Circle().fill(CinemaStyle.accent).frame(width: 6, height: 6)
+                        }
+                        if status.sdrToHDRActive || status.nativeHDRActive {
+                            Circle().fill(CinemaStyle.gold).frame(width: 6, height: 6)
+                        }
+                        if status.interpolationActive {
+                            Circle().fill(CinemaStyle.accent.opacity(0.85)).frame(width: 6, height: 6)
+                        }
+                        if status.thermalThrottled {
+                            Circle().fill(CinemaStyle.danger).frame(width: 6, height: 6)
+                        }
+                    }
+                    .accessibilityHidden(true)
                 }
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.50), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(.black.opacity(0.54), in: Capsule())
+            .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.75))
 
-            Spacer()
+            Spacer(minLength: 4)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 iconButton("Phát âm thanh nền", icon: "headphones", size: 38, active: backgroundAudio) {
                     backgroundAudio.toggle()
-                    showHUD(icon: "headphones", text: backgroundAudio ? "Bật phát nền" : "Tắt phát nền")
+                    showHUD(icon: "headphones", text: backgroundAudio ? "Phát nền: Bật" : "Phát nền: Tắt")
                     clearHUDDelayed()
                 }
                 iconButton("Thống kê kỹ thuật", icon: "info.circle", size: 38, active: showStats) {
@@ -431,6 +403,7 @@ struct CinemaPlayer: View {
                 iconButton("Xoay màn hình", icon: "rotate.right", size: 38) {
                     toggleOrientation()
                 }
+                .accessibilityIdentifier("player-rotate-toggle")
             }
         }
     }
@@ -493,7 +466,7 @@ struct CinemaPlayer: View {
     private var bottomBar: some View {
         if status.ready, status.error == nil {
             VStack(spacing: 8) {
-                HStack {
+                HStack(spacing: 10) {
                     Button {
                         showRemaining.toggle()
                     } label: {
@@ -505,73 +478,130 @@ struct CinemaPlayer: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("player-time-readout")
 
-                    Spacer()
-
-                    if status.outputChannels > 0 {
-                        Text("PCM \(MPVPlayback.channelsLabel(status.outputChannels))")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(CinemaStyle.muted)
-                    }
-                }
-
-                if status.duration > 0 {
-                    ZStack(alignment: .leading) {
-                        // Chapter ticks behind slider
-                        GeometryReader { geo in
-                            let bufferRatio = min(1.0, (status.time + status.demuxerCacheDuration) / status.duration)
-                            ZStack(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color.white.opacity(0.20))
-                                    .frame(height: 4)
-                                Capsule()
-                                    .fill(Color.white.opacity(0.36))
-                                    .frame(width: max(0, geo.size.width * bufferRatio), height: 4)
-                                ForEach(status.chapters) { chapter in
-                                    let ratio = min(max(chapter.time / status.duration, 0), 1)
+                    if status.duration > 0 {
+                        ZStack(alignment: .leading) {
+                            GeometryReader { geo in
+                                let bufferRatio = min(1.0, (status.time + status.demuxerCacheDuration) / status.duration)
+                                ZStack(alignment: .leading) {
                                     Capsule()
-                                        .fill(CinemaStyle.gold)
-                                        .frame(width: 3, height: 8)
-                                        .offset(x: geo.size.width * ratio)
+                                        .fill(Color.white.opacity(0.20))
+                                        .frame(height: 4)
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.36))
+                                        .frame(width: max(0, geo.size.width * bufferRatio), height: 4)
+                                    ForEach(status.chapters) { chapter in
+                                        let ratio = min(max(chapter.time / status.duration, 0), 1)
+                                        Capsule()
+                                            .fill(CinemaStyle.gold)
+                                            .frame(width: 3, height: 8)
+                                            .offset(x: geo.size.width * ratio)
+                                    }
                                 }
+                                .frame(height: 24)
                             }
                             .frame(height: 24)
-                        }
-                        .frame(height: 24)
-                        .allowsHitTesting(false)
+                            .allowsHitTesting(false)
 
-                        Slider(value: Binding(
-                            get: { min(scrubTime ?? status.time, status.duration) },
-                            set: { scrubTime = $0 }
-                        ), in: 0...status.duration, onEditingChanged: { editing in
-                            if !editing, let scrubTime {
-                                player.seek(to: scrubTime)
-                                self.scrubTime = nil
-                                scheduleAutoHide()
-                            }
-                        })
-                        .tint(CinemaStyle.accent)
-                        .accessibilityLabel("Tiến độ video")
+                            Slider(value: Binding(
+                                get: { min(scrubTime ?? status.time, status.duration) },
+                                set: { scrubTime = $0 }
+                            ), in: 0...status.duration, onEditingChanged: { editing in
+                                if !editing, let scrubTime {
+                                    player.seek(to: scrubTime)
+                                    self.scrubTime = nil
+                                    scheduleAutoHide()
+                                }
+                            })
+                            .tint(CinemaStyle.accent)
+                            .accessibilityLabel("Tiến độ video")
+                        }
+                    } else {
+                        Spacer()
                     }
                 }
 
-                HStack(spacing: 6) {
-                    drawerPill(.video, label: "Hình ảnh", icon: "wand.and.stars", id: "player-drawer-video")
-                    drawerPill(.subtitles, label: "Phụ đề", icon: "captions.bubble", id: "player-drawer-sub")
-                    drawerPill(.audio, label: "Âm thanh", icon: "speaker.wave.2", id: "player-drawer-audio")
-                    drawerPill(.chapters, label: speed == 1.0 ? "Khác" : "\(speed.formatted())×", icon: "slider.horizontal.3", id: "player-drawer-chapters")
+                HStack {
+                    drawerIconButton(
+                        .video,
+                        title: "Hình ảnh & AI",
+                        icon: "wand.and.stars",
+                        id: "player-drawer-video",
+                        hasDot: status.neuralUpscalingActive || status.sdrToHDRActive || status.interpolationActive
+                    )
+                    Spacer()
+                    drawerIconButton(
+                        .subtitles,
+                        title: "Phụ đề",
+                        icon: "captions.bubble",
+                        id: "player-drawer-sub",
+                        hasDot: !status.subtitles.isEmpty
+                    )
+                    Spacer()
+                    drawerIconButton(
+                        .audio,
+                        title: "Âm thanh",
+                        icon: "speaker.wave.2",
+                        id: "player-drawer-audio",
+                        hasDot: nightMode || Int(volumeBoost) != 100
+                    )
+                    Spacer()
+                    hudActionIcon(
+                        "Tỉ lệ khung hình",
+                        icon: "aspectratio",
+                        id: "player-drawer-aspect",
+                        active: aspectMode != .fit
+                    ) {
+                        let modes = AspectMode.allCases
+                        let nextIdx = ((modes.firstIndex(of: aspectMode) ?? 0) + 1) % modes.count
+                        aspectMode = modes[nextIdx]
+                        player.setAspectMode(aspectMode)
+                        showHUD(icon: "aspectratio", text: aspectMode.label)
+                        clearHUDDelayed()
+                        scheduleAutoHide()
+                    }
+                    Spacer()
+                    hudActionIcon(
+                        "Tốc độ phát",
+                        icon: "gauge.with.dots.needle.67percent",
+                        id: "player-drawer-speed",
+                        active: speed != 1.0
+                    ) {
+                        let steps = [1.0, 1.25, 1.5, 2.0]
+                        let next = steps.first { $0 > speed + 0.05 } ?? 1.0
+                        speed = next
+                        player.setSpeed(next)
+                        showHUD(icon: "gauge.with.dots.needle.67percent", text: "\(next.formatted())×")
+                        clearHUDDelayed()
+                        scheduleAutoHide()
+                    }
+                    Spacer()
+                    drawerIconButton(
+                        .chapters,
+                        title: "Tiện ích",
+                        icon: "ellipsis",
+                        id: "player-drawer-chapters",
+                        hasDot: sleepTimer != .off || abLoopA != nil
+                    )
                 }
+                .padding(.horizontal, 4)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)
-            .background(.black.opacity(0.76), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(.black.opacity(0.76), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .strokeBorder(CinemaStyle.border, lineWidth: 1)
             )
         }
     }
 
-    private func drawerPill(_ tab: PlayerDrawerTab, label: String, icon: String, id: String) -> some View {
+    private func drawerIconButton(
+        _ tab: PlayerDrawerTab,
+        title: String,
+        icon: String,
+        id: String,
+        hasDot: Bool
+    ) -> some View {
         let selected = activeDrawer == tab
         return Button {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
@@ -579,21 +609,53 @@ struct CinemaPlayer: View {
             }
             hideTask?.cancel()
         } label: {
-            HStack(spacing: 4) {
+            ZStack(alignment: .bottom) {
                 Image(systemName: icon)
-                    .font(.system(size: 11, weight: .semibold))
-                Text(label)
-                    .font(.system(size: 11, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(selected ? CinemaStyle.ctaForeground : .white)
+                    .frame(width: 40, height: 40)
+                    .background(selected ? CinemaStyle.accent : Color.white.opacity(0.14), in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(selected ? 0 : 0.14), lineWidth: 0.75))
+
+                if hasDot && !selected {
+                    Circle()
+                        .fill(CinemaStyle.gold)
+                        .frame(width: 4.5, height: 4.5)
+                        .offset(y: -4)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 8)
-            .background(selected ? CinemaStyle.accent : Color.white.opacity(0.14), in: Capsule())
-            .foregroundStyle(selected ? CinemaStyle.ctaForeground : .white)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier(id)
+    }
+
+    private func hudActionIcon(
+        _ title: String,
+        icon: String,
+        id: String,
+        active: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            ZStack(alignment: .bottom) {
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 40, height: 40)
+                    .background(Color.white.opacity(0.14), in: Circle())
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.75))
+
+                if active {
+                    Circle()
+                        .fill(CinemaStyle.accent)
+                        .frame(width: 4.5, height: 4.5)
+                        .offset(y: -4)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
         .accessibilityIdentifier(id)
     }
 
@@ -653,7 +715,7 @@ struct CinemaPlayer: View {
                 .accessibilityIdentifier("player-stats-overlay")
                 Spacer()
             }
-            .padding(.top, 114)
+            .padding(.top, 72)
             .padding(.horizontal, 18)
             Spacer()
         }
@@ -831,9 +893,7 @@ struct CinemaPlayer: View {
 
     private func toggleOrientation() {
         isLandscape.toggle()
-        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-        let mask: UIInterfaceOrientationMask = isLandscape ? .landscapeRight : .portrait
-        scene.requestGeometryUpdate(.iOS(interfaceOrientations: mask))
+        AppOrientationDelegate.setOrientation(isLandscape ? .landscapeRight : .portrait)
     }
 
     private func persist() {

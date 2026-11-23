@@ -56,7 +56,7 @@ struct MovieDetailView: View {
                     HStack(spacing: 10) {
                         Button { play(current) } label: {
                             Label(
-                                current.progress > 0 && !current.isCompleted ? "Xem tiếp" : "Phát phim",
+                                current.progress > 0 && !current.isCompleted ? "Xem tiếp" : "Phát",
                                 systemImage: "play.fill"
                             )
                             .font(.headline)
@@ -126,36 +126,38 @@ struct MovieDetailView: View {
                         castStrip(cast)
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Tệp & Thông tin TMDB")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(CinemaStyle.text)
+                    HStack(spacing: 10) {
                         Text(current.source.pathDescription)
                             .font(.caption.monospaced())
                             .foregroundStyle(CinemaStyle.muted)
-                            .textSelection(.enabled)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
 
-                        HStack(spacing: 14) {
-                            Button { showingSearch = true } label: {
-                                Label(
-                                    current.metadata == nil ? "Tìm thông tin TMDB" : "Đổi thông tin TMDB",
-                                    systemImage: "magnifyingglass"
-                                )
+                        Spacer()
+
+                        Button { showingSearch = true } label: {
+                            Label("TMDB", systemImage: "magnifyingglass")
                                 .font(.caption.weight(.bold))
                                 .foregroundStyle(CinemaStyle.accent)
-                            }
-                            if current.metadata != nil {
-                                Button("Gỡ thông tin", role: .destructive) {
-                                    library.setMetadata(current.id, value: nil)
-                                }
-                                .font(.caption.weight(.semibold))
-                            }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .obsidianGlass(cornerRadius: 10, strong: true)
                         }
-                        .padding(.top, 4)
+                        .buttonStyle(.plain)
+
+                        if current.metadata != nil {
+                            Button(role: .destructive) {
+                                library.setMetadata(current.id, value: nil)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(CinemaStyle.muted)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("Gỡ thông tin")
+                        }
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .obsidianGlass(cornerRadius: 16)
+                    .padding(12)
+                    .obsidianGlass(cornerRadius: 14)
                 }
                 .frame(maxWidth: 660, alignment: .leading)
                 .padding(18)
@@ -270,7 +272,7 @@ struct SeriesDetailView: View {
 
                     // Episode Rows
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Danh sách tập · Mùa \(selectedSeason)")
+                        Text("Mùa \(selectedSeason)")
                             .font(.headline)
                             .foregroundStyle(CinemaStyle.text)
 
@@ -322,7 +324,7 @@ struct SeriesDetailView: View {
                     }
 
                     Button { showingSearch = true } label: {
-                        Label("Cập nhật thông tin TMDB cho cả bộ", systemImage: "magnifyingglass")
+                        Label("Tìm TMDB cho bộ này", systemImage: "magnifyingglass")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(CinemaStyle.accent)
                     }

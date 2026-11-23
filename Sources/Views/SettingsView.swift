@@ -33,80 +33,73 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Giao diện hiển thị") {
-                    Picker("Phong cách", selection: $appTheme) {
+                Section("Giao diện") {
+                    Picker("Chủ đề", selection: $appTheme) {
                         ForEach(AppTheme.allCases) { theme in
                             Text(theme.title).tag(theme)
                         }
                     }
-                    Text(appTheme.subtitle)
-                        .font(.caption)
-                        .foregroundStyle(CinemaStyle.muted)
                 }
 
-                Section("Trình phát, AI & Hình ảnh") {
-                    Picker("Nâng độ phân giải mặc định", selection: $upscaler) {
+                Section("Trình phát") {
+                    Picker("AI Upscale", selection: $upscaler) {
                         ForEach(VideoUpscaler.allCases) { option in
-                            Text(option.label).tag(option)
+                            Text(option.shortLabel).tag(option)
                         }
                     }
-                    Picker("Hiển thị HDR gốc", selection: $hdrMode) {
+                    Picker("HDR gốc", selection: $hdrMode) {
                         ForEach(HDRDisplayMode.allCases) { mode in
                             Text(mode.label).tag(mode)
                         }
                     }
-                    Picker("Chuyển SDR → HDR", selection: $sdrToHDR) {
+                    Picker("SDR → HDR", selection: $sdrToHDR) {
                         ForEach(SDRtoHDRMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
+                            Text(mode.shortLabel).tag(mode)
                         }
                     }
-                    Picker("Bù khung hình nội suy", selection: $interpolation) {
+                    Picker("Nội suy FPS", selection: $interpolation) {
                         ForEach(MotionInterpolation.allCases) { mode in
-                            Text(mode.label).tag(mode)
+                            Text(mode.shortLabel).tag(mode)
                         }
                     }
                     if interpolation != .off {
-                        Picker("Tần số đích nội suy", selection: $interpolationFPS) {
+                        Picker("Tần số quét", selection: $interpolationFPS) {
                             ForEach(InterpolationFPS.allCases) { fps in
                                 Text(fps.label).tag(fps)
                             }
                         }
                     }
-                    Toggle("Khử banding mặc định", isOn: $deband)
-                    Toggle("Giải mã phần cứng VideoToolbox", isOn: $hwdecEnabled)
-                    Toggle("Phát âm thanh nền", isOn: $backgroundAudio)
-                    Picker("Chạm đúp tua nhanh", selection: $doubleTapSkip) {
-                        Text("10 giây").tag(10)
-                        Text("15 giây").tag(15)
-                        Text("30 giây").tag(30)
+                    Toggle("Deband màu", isOn: $deband)
+                    Toggle("VideoToolbox", isOn: $hwdecEnabled)
+                    Toggle("Phát nền", isOn: $backgroundAudio)
+                    Picker("Tua nhanh", selection: $doubleTapSkip) {
+                        Text("10s").tag(10)
+                        Text("15s").tag(15)
+                        Text("30s").tag(30)
                     }
-                    Picker("Đầu ra âm thanh", selection: $audioOutput) {
+                    Picker("Âm thanh", selection: $audioOutput) {
                         ForEach(AudioOutput.allCases) { out in
                             Text(out.label).tag(out)
                         }
                     }
                 }
 
-                Section("Máy chủ LAN mặc định") {
+                Section("Máy chủ LAN") {
                     TextField("http://192.168.1.1:8080", text: $serverURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
 
-                Section {
-                    SecureField("TMDB API Read Access Token", text: $tmdbToken)
+                Section("TMDB") {
+                    SecureField("TMDB Read Access Token", text: $tmdbToken)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button("Lưu mã TMDB") {
                         let ok = TMDBCredential.save(tmdbToken)
                         statusMessage = ok ? "Đã cập nhật TMDB Token vào Keychain." : "Không thể ghi vào Keychain."
                     }
-                    Link("Lấy mã truy cập TMDB", destination: URL(string: "https://www.themoviedb.org/settings/api")!)
-                } header: {
-                    Text("TMDB Metadata")
-                } footer: {
-                    Text("Dùng TMDB để tìm poster, diễn viên, nội dung tiếng Việt và điểm đánh giá.")
+                    Link("Lấy mã TMDB", destination: URL(string: "https://www.themoviedb.org/settings/api")!)
                 }
 
                 Section("OpenSubtitles & Trakt.tv") {
@@ -152,8 +145,8 @@ struct SettingsView: View {
                     }
                 }
 
-                Section {
-                    Button("Xuất sao lưu thư viện (JSON)") {
+                Section("Sao lưu JSON") {
+                    Button("Xuất sao lưu thư viện") {
                         do {
                             let data = try library.exportBackupJSON()
                             backupDocument = JSONBackupDocument(data: data)
@@ -162,22 +155,18 @@ struct SettingsView: View {
                             statusMessage = error.localizedDescription
                         }
                     }
-                    Button("Khôi phục từ tệp sao lưu JSON") {
+                    Button("Khôi phục từ tệp JSON") {
                         importingBackup = true
                     }
-                } header: {
-                    Text("Sao lưu & Khôi phục (Sideload-Safe)")
-                } footer: {
-                    Text("Không dùng iCloud CloudKit nên tương thích 100% khi cài đặt IPA ký miễn phí (Sideload).")
                 }
 
-                Section("Bộ nhớ đệm & Giấy phép") {
+                Section("Bộ nhớ & Giấy phép") {
                     HStack {
-                        Text("Bộ nhớ đệm Poster & Ảnh")
+                        Text("Cache ảnh")
                         Spacer()
                         Text(cacheSizeText).foregroundStyle(CinemaStyle.muted)
                     }
-                    Button("Xóa bộ nhớ đệm ảnh", role: .destructive) {
+                    Button("Xóa cache ảnh", role: .destructive) {
                         Task {
                             await CinemaImageCache.shared.clear()
                             await refreshCacheSize()

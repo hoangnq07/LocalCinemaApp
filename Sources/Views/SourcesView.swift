@@ -108,43 +108,47 @@ struct SourcesView: View {
 
     private var headerRow: some View {
         HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Nguồn & Máy chủ")
-                    .font(.system(.title2, design: .rounded, weight: .bold))
-                    .foregroundStyle(CinemaStyle.text)
-                    .accessibilityAddTraits(.isHeader)
-                Text("SMB · WebDAV · Jellyfin · Emby · Plex · M3U / STRM")
-                    .font(.caption)
-                    .foregroundStyle(CinemaStyle.muted)
-            }
+            Text("Nguồn")
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .foregroundStyle(CinemaStyle.text)
+                .accessibilityAddTraits(.isHeader)
             Spacer()
             Button { sheet = .addMenu } label: {
-                Label("Thêm nguồn", systemImage: "plus")
-                    .font(.caption.weight(.bold))
+                Image(systemName: "plus")
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(CinemaStyle.ctaForeground)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(CinemaStyle.ctaBackground, in: Capsule())
+                    .frame(width: 38, height: 38)
+                    .background(CinemaStyle.ctaBackground, in: Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Thêm nguồn")
         }
     }
 
     private var lanDiscoveryCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Circle()
                     .fill(discovery.scanning ? Color.green : CinemaStyle.muted)
-                    .frame(width: 8, height: 8)
-                Text(discovery.hosts.isEmpty
-                     ? "Đang tìm thiết bị NAS / Server trong mạng LAN…"
-                     : "Phát hiện \(discovery.hosts.count) dịch vụ trong mạng LAN")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(CinemaStyle.text)
-                Spacer()
-                Button("Quét lại") { discovery.start() }
-                    .font(.caption2.weight(.bold))
+                    .frame(width: 7, height: 7)
+                Text("LAN")
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(CinemaStyle.accent)
+                Text(discovery.hosts.isEmpty
+                     ? (discovery.scanning ? "Đang tìm máy chủ…" : "Chưa thấy thiết bị")
+                     : "\(discovery.hosts.count) máy chủ")
+                    .font(.caption)
+                    .foregroundStyle(CinemaStyle.muted)
+                Spacer()
+                Button { discovery.start() } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(CinemaStyle.accent)
+                        .frame(width: 28, height: 28)
+                        .obsidianGlass(cornerRadius: 14, strong: true)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Quét lại")
             }
             if !discovery.hosts.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -162,7 +166,7 @@ struct SourcesView: View {
                                     Text(host.name).font(.caption.weight(.semibold)).foregroundStyle(CinemaStyle.text)
                                 }
                                 .padding(.horizontal, 10)
-                                .padding(.vertical, 7)
+                                .padding(.vertical, 6)
                                 .obsidianGlass(cornerRadius: 12)
                             }
                             .buttonStyle(.plain)
@@ -171,13 +175,14 @@ struct SourcesView: View {
                 }
             }
         }
-        .padding(12)
-        .obsidianGlass(cornerRadius: 16)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .obsidianGlass(cornerRadius: 14)
     }
 
     private var mediaServersSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("MEDIA SERVER (DIRECT PLAY & SYNC)")
+            Text("MEDIA SERVER")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(CinemaStyle.muted)
 
@@ -196,7 +201,7 @@ struct SourcesView: View {
                             badge: server.kind.label.uppercased(),
                             title: server.name,
                             subtitle: server.serverURL,
-                            tag: "Sync 2 chiều"
+                            tag: "Direct"
                         )
                     }
                     .buttonStyle(.plain)
@@ -207,32 +212,32 @@ struct SourcesView: View {
 
     private var networkSharesSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("CHIA SẺ MẠNG (NAS / WEBDAV)")
+            Text("NAS & CLOUD")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(CinemaStyle.muted)
 
             HStack(spacing: 8) {
                 Button { sheet = .smb(prefill: nil) } label: {
-                    sourceActionTile("Nguồn SMB", subtitle: "\(smbProfiles.saved.count) máy chủ", icon: "server.rack")
+                    sourceActionTile("SMB", subtitle: "\(smbProfiles.saved.count) máy chủ", icon: "server.rack")
                 }
                 .buttonStyle(.plain)
 
                 Button { sheet = .webdav(prefill: nil) } label: {
-                    sourceActionTile("WebDAV / Alist", subtitle: "\(webdavProfiles.saved.count) kết nối", icon: "globe")
+                    sourceActionTile("WebDAV", subtitle: "\(webdavProfiles.saved.count) kết nối", icon: "globe")
                 }
                 .buttonStyle(.plain)
             }
 
             ForEach(smbProfiles.saved) { profile in
                 Button { sheet = .smb(prefill: profile.address) } label: {
-                    sourceRowCard(badge: "SMB", title: profile.address, subtitle: profile.user.isEmpty ? "Guest" : profile.user, tag: "AMSMB2")
+                    sourceRowCard(badge: "SMB", title: profile.address, subtitle: profile.user.isEmpty ? "Guest" : profile.user, tag: "SMB")
                 }
                 .buttonStyle(.plain)
             }
 
             ForEach(webdavProfiles.saved) { profile in
                 Button { sheet = .webdav(prefill: profile) } label: {
-                    sourceRowCard(badge: "DAV", title: profile.name, subtitle: profile.baseURL, tag: "PROPFIND")
+                    sourceRowCard(badge: "DAV", title: profile.name, subtitle: profile.baseURL, tag: "DAV")
                 }
                 .buttonStyle(.plain)
             }
@@ -241,25 +246,25 @@ struct SourcesView: View {
 
     private var localAndPlaylistSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("TỆP CỤC BỘ, LIÊN KẾT & IPTV")
+            Text("TỆP & DANH SÁCH")
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(CinemaStyle.muted)
 
             HStack(spacing: 8) {
                 Button(action: onPickFile) {
-                    sourceActionTile("Nhập tệp video", subtitle: "MKV, MP4, ISO…", icon: "folder")
+                    sourceActionTile("Chọn tệp", subtitle: "MKV, MP4…", icon: "folder")
                 }
                 .buttonStyle(.plain)
 
                 Button(action: onOpenAddLink) {
-                    sourceActionTile("Thêm liên kết", subtitle: "HTTP(S) / LAN", icon: "link")
+                    sourceActionTile("Liên kết", subtitle: "HTTP / LAN", icon: "link")
                 }
                 .buttonStyle(.plain)
             }
 
             HStack(spacing: 8) {
                 Button { pickingPlaylist = true } label: {
-                    sourceActionTile("Nhập M3U / STRM", subtitle: "Danh sách IPTV", icon: "list.bullet.rectangle")
+                    sourceActionTile("M3U / STRM", subtitle: "IPTV Playlist", icon: "list.bullet.rectangle")
                 }
                 .buttonStyle(.plain)
 
@@ -267,7 +272,7 @@ struct SourcesView: View {
                     library.scanDocumentsFolder()
                     notice = "Đã quét lại thư mục Tệp (Documents) của ứng dụng."
                 } label: {
-                    sourceActionTile("Quét thư mục Tệp", subtitle: "Đồng bộ tệp đã chép", icon: "arrow.clockwise")
+                    sourceActionTile("Quét Tệp", subtitle: "Documents", icon: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
             }
@@ -288,19 +293,25 @@ struct SourcesView: View {
     private func sourceActionTile(_ title: String, subtitle: String, icon: String) -> some View {
         HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(CinemaStyle.accent)
                 .frame(width: 34, height: 34)
                 .background(CinemaStyle.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.caption.weight(.bold)).foregroundStyle(CinemaStyle.text)
-                Text(subtitle).font(.caption2).foregroundStyle(CinemaStyle.muted)
+                Text(title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(CinemaStyle.text)
+                    .lineLimit(1)
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(CinemaStyle.muted)
+                    .lineLimit(1)
             }
             Spacer(minLength: 0)
         }
-        .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .obsidianGlass(cornerRadius: 15)
+        .padding(.horizontal, 11)
+        .frame(maxWidth: .infinity, minHeight: 60, maxHeight: 60, alignment: .leading)
+        .obsidianGlass(cornerRadius: 14)
     }
 
     private func sourceRowCard(badge: String, title: String, subtitle: String, tag: String) -> some View {

@@ -28,7 +28,7 @@ struct HomeView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
                 header
                 heroSection
                 quickSourcesRow
@@ -69,56 +69,55 @@ struct HomeView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
                     .fill(CinemaStyle.elevated)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 36, height: 36)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
                             .strokeBorder(
                                 LinearGradient(
-                                    colors: [.white.opacity(0.65), CinemaStyle.accent, CinemaStyle.gold],
+                                    colors: [.white.opacity(0.6), CinemaStyle.accent, CinemaStyle.gold],
                                     startPoint: .topLeading,
                                     endPoint: .bottomTrailing
                                 ),
-                                lineWidth: 1.5
+                                lineWidth: 1.25
                             )
                     )
                 Image(systemName: "play.fill")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(CinemaStyle.text)
             }
             .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Local Cinema")
-                    .font(.system(.title3, design: .rounded, weight: .bold))
-                    .foregroundStyle(CinemaStyle.text)
-                    .accessibilityAddTraits(.isHeader)
-                Text(library.items.isEmpty ? "Rạp phim cá nhân HDR & AI" : "\(library.items.count) video · Sẵn sàng phát")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(CinemaStyle.muted)
+            Text("Local Cinema")
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .foregroundStyle(CinemaStyle.text)
+                .accessibilityAddTraits(.isHeader)
+
+            if !library.items.isEmpty {
+                TechBadge(text: "\(library.items.count)", tone: .accent)
             }
 
             Spacer()
 
             Button { onJumpTab(.library) } label: {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(CinemaStyle.text)
-                    .frame(width: 40, height: 40)
-                    .obsidianGlass(cornerRadius: 20)
+                    .frame(width: 38, height: 38)
+                    .obsidianGlass(cornerRadius: 19)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Tìm trong thư viện")
 
             Button { onJumpTab(.sources) } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(CinemaStyle.text)
-                    .frame(width: 40, height: 40)
-                    .obsidianGlass(cornerRadius: 20)
+                    .frame(width: 38, height: 38)
+                    .obsidianGlass(cornerRadius: 19)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Thêm nguồn phim")
@@ -164,49 +163,47 @@ struct HomeView: View {
     private var emptyHeroCard: some View {
         ZStack(alignment: .bottomLeading) {
             CinemaArtwork(url: nil, fallback: .coast)
-                .frame(height: 295)
+                .frame(height: 244)
             LinearGradient(
-                colors: [.clear, .black.opacity(0.35), CinemaStyle.background.opacity(0.96)],
+                colors: [.clear, .black.opacity(0.32), CinemaStyle.background.opacity(0.95)],
                 startPoint: .top,
                 endPoint: .bottom
             )
-            VStack(alignment: .leading, spacing: 10) {
-                TechBadge(text: "4K HDR · AI FSRCNNX ×2", tone: .gold)
-                Text("Rạp phim của bạn")
-                    .font(.system(.largeTitle, design: .rounded, weight: .bold))
+            VStack(alignment: .leading, spacing: 8) {
+                TechBadge(text: "4K HDR · AI", tone: .gold)
+                Text("Rạp phim cá nhân")
+                    .font(.system(.title, design: .rounded, weight: .bold))
                     .foregroundStyle(CinemaStyle.text)
-                Text("Phát trực tiếp từ iPhone, SMB NAS, WebDAV, Jellyfin, Emby hoặc Plex với phụ đề kép & SDR→HDR.")
-                    .font(.subheadline)
+                Text("SMB · WebDAV · Jellyfin · Plex")
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(CinemaStyle.muted)
-                    .lineLimit(2)
+                    .lineLimit(1)
                 HStack(spacing: 10) {
-                    Button(action: onOpenLink) {
-                        Label("Mở liên kết", systemImage: "link")
+                    Button(action: onPickFile) {
+                        Label("Chọn tệp", systemImage: "folder.fill")
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(CinemaStyle.ctaForeground)
-                            .padding(.horizontal, 18)
-                            .frame(minHeight: 44)
+                            .frame(maxWidth: .infinity, minHeight: 42)
                             .background(CinemaStyle.ctaBackground, in: Capsule())
                     }
                     .buttonStyle(.plain)
 
-                    Button(action: onOpenSMB) {
-                        Label("Kết nối SMB", systemImage: "server.rack")
+                    Button(action: onOpenLink) {
+                        Label("Liên kết", systemImage: "link")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(CinemaStyle.text)
-                            .padding(.horizontal, 16)
-                            .frame(minHeight: 44)
-                            .obsidianGlass(cornerRadius: 22, strong: true)
+                            .frame(maxWidth: .infinity, minHeight: 42)
+                            .obsidianGlass(cornerRadius: 21, strong: true)
                     }
                     .buttonStyle(.plain)
                 }
                 .padding(.top, 4)
             }
-            .padding(22)
+            .padding(20)
         }
-        .frame(height: 295)
-        .clipShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(CinemaStyle.border))
+        .frame(height: 244)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(CinemaStyle.border))
     }
 
     private func heroCard(for item: MediaItem) -> some View {
@@ -290,9 +287,9 @@ struct HomeView: View {
 
     private var quickSourcesRow: some View {
         HStack(spacing: 10) {
-            sourceShortcut("Tệp trên máy", icon: "folder", action: onPickFile)
-            sourceShortcut("Liên kết", icon: "link", action: onOpenLink)
-            sourceShortcut("Nguồn SMB", icon: "server.rack", action: onOpenSMB)
+            sourceShortcut("Tệp", icon: "folder", id: "quick-files", action: onPickFile)
+            sourceShortcut("Liên kết", icon: "link", id: "quick-link", action: onOpenLink)
+            sourceShortcut("SMB", icon: "server.rack", id: "quick-smb", action: onOpenSMB)
         }
         .disabled(importing)
         .overlay(alignment: .trailing) {
@@ -300,28 +297,29 @@ struct HomeView: View {
         }
     }
 
-    private func sourceShortcut(_ title: String, icon: String, action: @escaping () -> Void) -> some View {
+    private func sourceShortcut(_ title: String, icon: String, id: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Label {
                 Text(title)
-                    .font(.caption.weight(.semibold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(CinemaStyle.text)
                     .lineLimit(1)
             } icon: {
                 Image(systemName: icon)
                     .foregroundStyle(CinemaStyle.accent)
             }
-            .frame(maxWidth: .infinity, minHeight: 46)
-            .obsidianGlass(cornerRadius: 15)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .obsidianGlass(cornerRadius: 14)
         }
         .buttonStyle(.plain)
+        .accessibilityIdentifier(id)
     }
 
     // MARK: - Shelves
 
     private var continueWatchingShelf: some View {
         VStack(alignment: .leading, spacing: 12) {
-            shelfHeader("Tiếp tục xem", actionTitle: "Thư viện") { onJumpTab(.library) }
+            shelfHeader("Xem tiếp", actionTitle: "Tất cả") { onJumpTab(.library) }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(library.continueWatching.prefix(12)) { item in
@@ -369,8 +367,8 @@ struct HomeView: View {
     }
 
     private var recentlyAddedShelf: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            shelfHeader("Mới thêm vào thư viện")
+        VStack(alignment: .leading, spacing: 10) {
+            shelfHeader("Mới thêm")
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
                     ForEach(library.recentlyAdded.prefix(14)) { item in
@@ -382,8 +380,8 @@ struct HomeView: View {
     }
 
     private var seriesShelf: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            shelfHeader("Phim bộ đang theo dõi")
+        VStack(alignment: .leading, spacing: 10) {
+            shelfHeader("Phim bộ")
             VStack(spacing: 10) {
                 ForEach(library.seriesGroups.prefix(6)) { group in
                     Button { onOpenSeries(group) } label: {

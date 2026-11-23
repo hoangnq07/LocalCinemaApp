@@ -8,9 +8,9 @@ enum PlayerDrawerTab: String, Identifiable {
     var title: String {
         switch self {
         case .video: return "Hình ảnh & AI"
-        case .subtitles: return "Phụ đề kép"
-        case .audio: return "Âm thanh Pro"
-        case .chapters: return "Chương & Tiện ích"
+        case .subtitles: return "Phụ đề"
+        case .audio: return "Âm thanh"
+        case .chapters: return "Tiện ích"
         }
     }
 }
@@ -140,7 +140,7 @@ struct PlayerDrawerContainer: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionHeader("Nâng độ phân giải bằng AI (GPU)")
+                sectionHeader("AI Upscale")
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                     ForEach(VideoUpscaler.allCases) { option in
                         chipButton(option.shortLabel, selected: upscaler == option) {
@@ -152,9 +152,9 @@ struct PlayerDrawerContainer: View {
                 }
                 if upscaler.usesNeuralShader {
                     Text(status.neuralUpscalingActive
-                         ? "FSRCNNX ×2 đang xử lý trực tiếp trên GPU Metal."
-                         : "Đang dùng Lanczos. FSRCNNX kích hoạt khi khung hình chiếu lớn hơn video nguồn ≥1.3×.")
-                        .font(.caption2)
+                         ? "FSRCNNX ×2 đang chạy"
+                         : "Tự bật khi upscale ≥1.3×.")
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(status.neuralUpscalingActive ? CinemaStyle.accent : CinemaStyle.muted)
                 }
             }
@@ -162,7 +162,7 @@ struct PlayerDrawerContainer: View {
             Divider().overlay(CinemaStyle.border)
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionHeader("Chuyển SDR → HDR thời gian thực")
+                sectionHeader("SDR → HDR")
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                     ForEach(SDRtoHDRMode.allCases) { mode in
                         chipButton(mode.shortLabel, selected: sdrToHDR == mode, highlightGold: mode != .off) {
@@ -174,9 +174,9 @@ struct PlayerDrawerContainer: View {
                 }
                 if sdrToHDR != .off {
                     Text(status.sdrToHDRBypassedForNativeHDR
-                         ? "Nguồn đã là HDR gốc — tự động bỏ qua SDR → HDR để giữ màu EDR chuẩn."
-                         : "Đang mở rộng dải sáng lên \(sdrToHDR.targetPeakNits) nit qua libplacebo Inverse Tone Mapping.")
-                        .font(.caption2)
+                         ? "HDR gốc · giữ nguyên EDR"
+                         : "SDR → HDR · \(sdrToHDR.targetPeakNits) nit")
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(CinemaStyle.gold)
                 }
             }
@@ -184,7 +184,7 @@ struct PlayerDrawerContainer: View {
             Divider().overlay(CinemaStyle.border)
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionHeader("Bù khung hình nội suy (Frame Interpolation)")
+                sectionHeader("Nội suy FPS")
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                     ForEach(MotionInterpolation.allCases) { mode in
                         chipButton(mode.shortLabel, selected: interpolation == mode) {
@@ -195,8 +195,11 @@ struct PlayerDrawerContainer: View {
                     }
                 }
                 if interpolation != .off {
+                    Text(status.interpolationActive ? "Nội suy · \(interpolation.shortLabel)" : "Đang khởi tạo nội suy…")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(CinemaStyle.accent)
                     HStack(spacing: 6) {
-                        Text("Tần số đích:")
+                        Text("Tần số:")
                             .font(.caption2)
                             .foregroundStyle(CinemaStyle.muted)
                         ForEach(InterpolationFPS.allCases) { fps in
@@ -208,7 +211,7 @@ struct PlayerDrawerContainer: View {
                     }
                 }
 
-                sectionHeader("Hiển thị HDR gốc")
+                sectionHeader("HDR gốc")
                     .padding(.top, 4)
                 ForEach(HDRDisplayMode.allCases) { mode in
                     optionRow(title: mode.label, selected: hdrMode == mode) {
@@ -220,7 +223,7 @@ struct PlayerDrawerContainer: View {
 
             Divider().overlay(CinemaStyle.border)
 
-            Toggle("Khử banding màu (Deband)", isOn: $deband)
+            Toggle("Deband màu", isOn: $deband)
                 .font(.caption.weight(.semibold))
                 .tint(CinemaStyle.accent)
                 .onChange(of: deband) { value in
@@ -228,7 +231,7 @@ struct PlayerDrawerContainer: View {
                 }
 
             VStack(alignment: .leading, spacing: 8) {
-                sectionHeader("Tỉ lệ khung hình & Thu phóng")
+                sectionHeader("Khung hình")
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 68), spacing: 6)], spacing: 6) {
                     ForEach(AspectMode.allCases) { mode in
                         chipButton(mode.label, selected: aspectMode == mode) {
@@ -246,7 +249,7 @@ struct PlayerDrawerContainer: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    sectionHeader("Preset & Tinh chỉnh màu")
+                    sectionHeader("Màu sắc")
                     Spacer()
                     Button("Đặt lại") {
                         applyColorPreset(.original)

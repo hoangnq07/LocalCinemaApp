@@ -70,6 +70,7 @@ jobs:
           "$RUNNER_TEMP/smb-venv/bin/pip" install --quiet impacket==0.13.1
           mkdir -p "$RUNNER_TEMP/smb-share/Danh mục"
           cp UITests/Fixture/surround.mkv "$RUNNER_TEMP/smb-share/Danh mục/"
+          printf '1\n00:00:00,200 --> 00:00:12,000\nPhụ đề tiếng Việt tự động tải từ thư mục SMB\n' > "$RUNNER_TEMP/smb-share/Danh mục/VietSub.srt"
           python3 -m http.server 8712 --bind 127.0.0.1 --directory UITests/Fixture > "$RUNNER_TEMP/fixture.log" 2>&1 &
           http_pid=$!
           "$RUNNER_TEMP/smb-venv/bin/python" UITests/Fixture/smb_server.py "$RUNNER_TEMP/smb-share" > "$RUNNER_TEMP/smb.log" 2>&1 &

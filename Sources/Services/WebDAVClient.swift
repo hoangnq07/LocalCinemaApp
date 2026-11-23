@@ -141,7 +141,7 @@ enum WebDAVClient {
             throw WebDAVError.serverStatus(http.statusCode)
         }
         let allEntries = parsePropfindResponse(data, baseURL: profile.normalizedBaseURL, requestedPath: targetURL.path)
-        return allEntries.filter { $0.isDirectory || $0.isVideo }
+        return allEntries.filter { $0.isDirectory || $0.isVideo || $0.isSubtitle }
     }
 
     static func scanFolder(
@@ -167,15 +167,33 @@ enum WebDAVClient {
             throw WebDAVError.network
         }
         let all = parsePropfindResponse(data, baseURL: profile.normalizedBaseURL, requestedPath: targetURL.path)
-        let subs = all.filter(\.isSubtitle)
+        let subPaths = all.filter(\.isSubtitle).map(\.path)
         return all.filter(\.isVideo).map { video in
-            let stem = URL(fileURLWithPath: video.path).deletingPathExtension().path.lowercased()
-            let matched = subs.filter {
-                let s = URL(fileURLWithPath: $0.path).deletingPathExtension().path.lowercased()
-                return s == stem || s.hasPrefix(stem + ".")
-            }.map(\.path)
+            let matched = FolderSubtitleMatcher.match(videoPath: video.path, candidateSubtitlePaths: subPaths)
             return (video, matched)
         }
+    }
+
+    static func findFolderSubtitles(
+        profile: WebDAVProfile,
+        password: String,
+        videoPath: String,
+        session: URLSession = .shared
+    ) async -> [String] {
+        let normVideo = videoPath.hasPrefix("/") ? videoPath : "/\(videoPath)"
+        let parentURL = URL(fileURLWithPath: normVideo).deletingLastPathComponent()
+        let parentPath = parentURL.path.isEmpty ? "/" : parentURL.path
+        guard let entries = try? await listDirectory(profile: profile, password: password, folderPath: parentPath, session: session) else {
+            return []
+        }
+        var candidates = entries.filter(\.isSubtitle).map(\.path)
+        let subFolders = entries.filter { $0.isDirectory && FolderSubtitleMatcher.isSubtitleFolderName($0.name) }
+        for folder in subFolders.prefix(2) {
+            if let subEntries = try? await listDirectory(profile: profile, password: password, folderPath: folder.path, session: session) {
+                candidates.append(contentsOf: subEntries.filter(\.isSubtitle).map(\.path))
+            }
+        }
+        return FolderSubtitleMatcher.match(videoPath: normVideo, candidateSubtitlePaths: candidates)
     }
 
     static func downloadSubtitles(
@@ -190,7 +208,7 @@ enum WebDAVClient {
         let headers = authHeaders(username: profile.username, password: password)
         var result: [URL] = []
 
-        for path in paths.prefix(4) {
+        for path in paths.prefix(8) {
             guard let url = resolveFileURL(baseURL: profile.normalizedBaseURL, path: path) else { continue }
             var request = URLRequest(url: url, timeoutInterval: 15)
             for (k, v) in headers { request.setValue(v, forHTTPHeaderField: k) }

@@ -106,6 +106,8 @@ final class MPVPlayback: ObservableObject {
     private var pendingExternalSubtitles: [URL] = []
     private var currentTitle = ""
     private var remoteTargetsConfigured = false
+    private var isReconfiguringSurface = false
+    private var lastConfiguredSize: CGSize = .zero
 
     deinit {
         if let thermalObserver {
@@ -123,11 +125,13 @@ final class MPVPlayback: ObservableObject {
         config: PlaybackConfiguration
     ) {
         currentTitle = title
+        let initialDrawableSize = surface.drawableSize
         configureAudioSession()
         setupRemoteCommands()
 
         work.async {
             guard self.handle == nil else { return }
+            self.lastConfiguredSize = initialDrawableSize
             guard let client = mpv_create() else {
                 self.fail("Không thể khởi tạo trình phát.")
                 return
@@ -235,6 +239,47 @@ final class MPVPlayback: ObservableObject {
     func close() {
         clearNowPlaying()
         work.async { self.finish() }
+    }
+
+    /// Forces libmpv's `gpu-next` + `moltenvk` context to re-read `CAMetalLayer.drawableSize`
+    /// after orientation or container size changes (working around MPVKit's missing `VO_EVENT_RESIZE`).
+    func handleSurfaceResize(_ drawableSize: CGSize) {
+        work.async {
+            guard self.handle != nil,
+                  self.progress.ready,
+                  self.progress.error == nil,
+                  !self.isReconfiguringSurface,
+                  drawableSize.width > 1,
+                  drawableSize.height > 1 else {
+                return
+            }
+            guard abs(drawableSize.width - self.lastConfiguredSize.width) > 2
+                || abs(drawableSize.height - self.lastConfiguredSize.height) > 2 else {
+                return
+            }
+            self.lastConfiguredSize = drawableSize
+            let activeVid = self.string("vid")
+            guard activeVid != "no" else { return }
+            let restoreVid = (activeVid?.isEmpty == false) ? activeVid! : "auto"
+            let wasPaused = self.flag("pause")
+
+            self.isReconfiguringSurface = true
+            self.setOptional("vid", "no")
+            self.work.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                guard let self else { return }
+                defer { self.isReconfiguringSurface = false }
+                guard self.handle != nil else { return }
+                self.setOptional("vid", restoreVid)
+                self.reconcileEnhancements(force: true)
+                if wasPaused {
+                    self.work.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                        guard let self, self.handle != nil else { return }
+                        self.setOptional("pause", "yes")
+                        self.command("seek", "0", "relative+exact")
+                    }
+                }
+            }
+        }
     }
 
     func togglePause() {
@@ -397,10 +442,21 @@ final class MPVPlayback: ObservableObject {
         work.async {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-            self.command("sub-add", url.path, "select")
+            let cleanTitle = Self.cleanSubtitleTitle(from: url)
+            self.command("sub-add", url.path, "select", cleanTitle)
             self.updateTracks()
             self.publish()
         }
+    }
+
+    private static func cleanSubtitleTitle(from url: URL) -> String {
+        let name = url.lastPathComponent
+        if name.count > 37,
+           name[name.index(name.startIndex, offsetBy: 36)] == "_",
+           UUID(uuidString: String(name.prefix(36))) != nil {
+            return String(name.dropFirst(37))
+        }
+        return name
     }
 
     func setSubtitleOffset(_ seconds: Double) {
@@ -599,8 +655,9 @@ final class MPVPlayback: ObservableObject {
                 if initialConfig.startTime > 0 {
                     command("seek", String(initialConfig.startTime), "absolute+exact")
                 }
-                for subURL in pendingExternalSubtitles {
-                    command("sub-add", subURL.path, "auto")
+                for (index, subURL) in pendingExternalSubtitles.enumerated() {
+                    let cleanTitle = Self.cleanSubtitleTitle(from: subURL)
+                    command("sub-add", subURL.path, index == 0 ? "select" : "auto", cleanTitle)
                 }
                 pendingExternalSubtitles.removeAll()
                 updateTracks()
@@ -905,33 +962,57 @@ final class MPVPlayback: ObservableObject {
 }
 
 struct MPVSurface: UIViewRepresentable {
+    var onResize: ((CGSize) -> Void)? = nil
     let attached: (CAMetalLayer, Bool, Int) -> Void
 
     func makeUIView(context: Context) -> RenderView {
         let view = RenderView()
         view.ready = attached
+        view.onResize = onResize
         return view
     }
 
-    func updateUIView(_ uiView: RenderView, context: Context) {}
+    func updateUIView(_ uiView: RenderView, context: Context) {
+        uiView.onResize = onResize
+    }
 
     final class RenderView: UIView {
         override class var layerClass: AnyClass { RenderLayer.self }
         var ready: ((CAMetalLayer, Bool, Int) -> Void)?
+        var onResize: ((CGSize) -> Void)?
+        private var lastDrawableSize: CGSize = .zero
+        private var resizeWorkItem: DispatchWorkItem?
 
         override func layoutSubviews() {
             super.layoutSubviews()
             guard let window, let layer = layer as? CAMetalLayer, bounds.width > 1, bounds.height > 1 else { return }
             let screen = window.screen
             let scale = screen.nativeScale
+            let targetSize = CGSize(width: floor(bounds.width * scale), height: floor(bounds.height * scale))
+
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             layer.contentsScale = scale
-            layer.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+            layer.contentsGravity = .resizeAspect
+            layer.drawableSize = targetSize
+            CATransaction.commit()
+
             if let ready {
                 self.ready = nil
+                self.lastDrawableSize = targetSize
                 layer.framebufferOnly = true
                 let edrAvailable = screen.potentialEDRHeadroom > 1.05
                 let maxFPS = screen.maximumFramesPerSecond
                 DispatchQueue.main.async { ready(layer, edrAvailable, maxFPS) }
+            } else if abs(targetSize.width - lastDrawableSize.width) > 2
+                || abs(targetSize.height - lastDrawableSize.height) > 2 {
+                lastDrawableSize = targetSize
+                resizeWorkItem?.cancel()
+                let workItem = DispatchWorkItem { [weak self] in
+                    self?.onResize?(targetSize)
+                }
+                resizeWorkItem = workItem
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: workItem)
             }
         }
     }

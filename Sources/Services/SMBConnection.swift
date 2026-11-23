@@ -73,13 +73,31 @@ final class SMBProfiles: ObservableObject {
     }
 
     func save(_ profile: SMBProfile, password: String) throws {
-        let next = [profile] + saved.filter { $0.id != profile.id }
+        let normKey = Self.dedupeKey(for: profile)
+        let duplicates = saved.filter { $0.id != profile.id && Self.dedupeKey(for: $0) == normKey }
+        for dup in duplicates {
+            _ = KeychainStore.delete(service: keychainService, account: dup.id.uuidString)
+        }
+        let next = [profile] + saved.filter { $0.id != profile.id && Self.dedupeKey(for: $0) != normKey }
         let data = try JSONEncoder().encode(next)
         guard KeychainStore.write(password, service: keychainService, account: profile.id.uuidString) else {
             throw SMBFailure.credentials
         }
         defaults.set(data, forKey: storeKey)
         saved = next
+    }
+
+    func existingProfileID(matchingAddress address: String, user: String) -> UUID? {
+        let probe = SMBProfile(address: address, user: user, domain: "")
+        let key = Self.dedupeKey(for: probe)
+        return saved.first { Self.dedupeKey(for: $0) == key }?.id
+    }
+
+    private static func dedupeKey(for profile: SMBProfile) -> String {
+        let hostPart = SMBAddress(profile.address)?.server.absoluteString.lowercased()
+            ?? profile.address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let pathPart = SMBAddress(profile.address)?.folders.joined(separator: "/").lowercased() ?? ""
+        return "\(hostPart)|\(pathPart)|\(profile.user.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())"
     }
 
     func remove(_ profile: SMBProfile) throws {
@@ -110,7 +128,7 @@ final class SMBProfiles: ObservableObject {
         try await client.connectShare(name: share)
         let rows = try await client.contentsOfDirectory(atPath: folderPath, recursive: true)
 
-        var subtitleByStem: [String: [String]] = [:]
+        var subtitlePaths: [String] = []
         var videoRows: [(name: String, path: String, size: Int64?)] = []
 
         for row in rows {
@@ -119,9 +137,8 @@ final class SMBProfiles: ObservableObject {
             let normalized = relPath.hasPrefix("/") ? relPath : (folderPath == "/" ? "/\(relPath)" : "\(folderPath)/\(relPath)")
             let url = URL(fileURLWithPath: normalized)
             let ext = url.pathExtension.lowercased()
-            let stem = url.deletingPathExtension().path.lowercased()
             if MediaLibrary.subtitleExtensions.contains(ext) {
-                subtitleByStem[stem, default: []].append(normalized)
+                subtitlePaths.append(normalized)
             } else if MediaLibrary.fileExtensions.contains(ext) {
                 let size = (row[.fileSizeKey] as? NSNumber)?.int64Value
                 videoRows.append((url.lastPathComponent, normalized, size))
@@ -129,11 +146,55 @@ final class SMBProfiles: ObservableObject {
         }
 
         return videoRows.map { row in
-            let stem = URL(fileURLWithPath: row.path).deletingPathExtension().path.lowercased()
-            let exactMatches = subtitleByStem[stem] ?? []
-            let prefixMatches = subtitleByStem.filter { $0.key.hasPrefix(stem + ".") }.flatMap(\.value)
-            let sidecars = Array(Set(exactMatches + prefixMatches)).sorted()
+            let sidecars = FolderSubtitleMatcher.match(videoPath: row.path, candidateSubtitlePaths: subtitlePaths)
             return SMBScannedFile(share: share, path: row.path, name: row.name, fileSize: row.size, sidecarSubtitles: sidecars)
+        }
+    }
+
+    func findFolderSubtitles(for location: SMBMediaLocation) async -> [String] {
+        guard let profile = saved.first(where: { $0.id == location.connectionID }),
+              let client = try? profile.makeClient(password: password(for: profile)) else {
+            return []
+        }
+        do {
+            try await client.connectShare(name: location.share)
+            let normalizedVideo = location.path.hasPrefix("/") ? location.path : "/\(location.path)"
+            let parentURL = URL(fileURLWithPath: normalizedVideo).deletingLastPathComponent()
+            let parentPath = parentURL.path.isEmpty ? "/" : parentURL.path
+
+            let rows = try await client.contentsOfDirectory(atPath: parentPath)
+            var candidates: [String] = []
+            var subFolderPaths: [String] = []
+
+            for row in rows {
+                guard let name = row[.nameKey] as? String, SMBAddress.validComponent(name) else { continue }
+                let isDir = (row[.isDirectoryKey] as? NSNumber)?.boolValue == true
+                let fullPath = parentPath == "/" ? "/\(name)" : "\(parentPath)/\(name)"
+                if isDir {
+                    if FolderSubtitleMatcher.isSubtitleFolderName(name) {
+                        subFolderPaths.append(fullPath)
+                    }
+                } else if MediaLibrary.subtitleExtensions.contains(URL(fileURLWithPath: name).pathExtension.lowercased()) {
+                    candidates.append(fullPath)
+                }
+            }
+
+            for subDirPath in subFolderPaths.prefix(2) {
+                if let subRows = try? await client.contentsOfDirectory(atPath: subDirPath) {
+                    for sRow in subRows {
+                        guard let sName = sRow[.nameKey] as? String,
+                              SMBAddress.validComponent(sName),
+                              (sRow[.isDirectoryKey] as? NSNumber)?.boolValue != true else { continue }
+                        if MediaLibrary.subtitleExtensions.contains(URL(fileURLWithPath: sName).pathExtension.lowercased()) {
+                            candidates.append("\(subDirPath)/\(sName)")
+                        }
+                    }
+                }
+            }
+
+            return FolderSubtitleMatcher.match(videoPath: normalizedVideo, candidateSubtitlePaths: candidates)
+        } catch {
+            return []
         }
     }
 
@@ -153,7 +214,7 @@ final class SMBProfiles: ObservableObject {
         let subDir = FileManager.default.temporaryDirectory.appendingPathComponent("LocalCinemaSubs", isDirectory: true)
         try? FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
 
-        for remotePath in sidecars.prefix(4) {
+        for remotePath in sidecars.prefix(8) {
             do {
                 var data = Data()
                 for try await chunk in client.contents(atPath: remotePath, range: 0..<Int64(8 * 1024 * 1024)) {

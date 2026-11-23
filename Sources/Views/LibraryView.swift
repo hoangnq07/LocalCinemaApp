@@ -14,7 +14,13 @@ struct LibraryView: View {
     @State private var gridView = true
     @State private var scrapeNotice: String?
 
-    private let sourceCategories = ["Tất cả", "Trên máy", "Liên kết", "SMB", "WebDAV", "Jellyfin", "Emby", "Plex"]
+    private var distinctSourceTags: [String] {
+        Array(Set(library.items.map(\.source.categoryTag))).sorted()
+    }
+
+    private var unmatchedCount: Int {
+        library.items.filter { $0.metadata == nil }.count
+    }
 
     private var filteredItems: [MediaItem] {
         var list = library.items
@@ -54,12 +60,16 @@ struct LibraryView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 headerRow
                 searchField
                 filterBar
-                sourceFilterBar
-                tmdbBanner
+                if distinctSourceTags.count > 1 {
+                    sourceFilterBar
+                }
+                if !library.items.isEmpty && (library.scrapingProgress != nil || scrapeNotice != nil || unmatchedCount > 0) {
+                    tmdbBanner
+                }
 
                 if filteredItems.isEmpty {
                     emptyCard
@@ -82,16 +92,14 @@ struct LibraryView: View {
     }
 
     private var headerRow: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Thư viện")
-                    .font(.system(.title2, design: .rounded, weight: .bold))
-                    .foregroundStyle(CinemaStyle.text)
-                    .accessibilityAddTraits(.isHeader)
-                Text("\(filteredItems.count) / \(library.items.count) mục")
-                    .font(.caption)
-                    .foregroundStyle(CinemaStyle.muted)
-            }
+        HStack(spacing: 8) {
+            Text("Thư viện")
+                .font(.system(.title2, design: .rounded, weight: .bold))
+                .foregroundStyle(CinemaStyle.text)
+                .accessibilityAddTraits(.isHeader)
+
+            TechBadge(text: "\(filteredItems.count)", tone: .accent)
+
             Spacer()
 
             Menu {
@@ -101,20 +109,20 @@ struct LibraryView: View {
                     }
                 }
             } label: {
-                Label(sortBy.label, systemImage: "arrow.up.arrow.down")
-                    .font(.caption.weight(.semibold))
+                Image(systemName: "arrow.up.arrow.down")
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(CinemaStyle.text)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .obsidianGlass(cornerRadius: 12)
+                    .frame(width: 36, height: 36)
+                    .obsidianGlass(cornerRadius: 18)
             }
+            .accessibilityLabel("Sắp xếp")
 
             Button { gridView.toggle() } label: {
                 Image(systemName: gridView ? "list.bullet" : "square.grid.2x2")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(CinemaStyle.text)
-                    .frame(width: 34, height: 34)
-                    .obsidianGlass(cornerRadius: 12)
+                    .frame(width: 36, height: 36)
+                    .obsidianGlass(cornerRadius: 18)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(gridView ? "Xem dạng danh sách" : "Xem dạng lưới")
@@ -168,24 +176,20 @@ struct LibraryView: View {
     private var sourceFilterBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 6) {
-                Text("Nguồn:")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(CinemaStyle.muted)
-                ForEach(sourceCategories, id: \.self) { src in
+                ForEach(["Tất cả"] + distinctSourceTags, id: \.self) { src in
                     let selected = sourceFilter == src
                     Button { sourceFilter = src } label: {
                         Text(src)
                             .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 9)
+                            .padding(.horizontal, 10)
                             .padding(.vertical, 5)
                             .background(
-                                selected ? CinemaStyle.accent.opacity(0.20) : Color.clear,
-                                in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                selected ? CinemaStyle.accent.opacity(0.18) : Color.clear,
+                                in: Capsule()
                             )
                             .foregroundStyle(selected ? CinemaStyle.accent : CinemaStyle.muted)
                             .overlay(
-                                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                    .strokeBorder(selected ? CinemaStyle.accent : CinemaStyle.border)
+                                Capsule().strokeBorder(selected ? CinemaStyle.accent : CinemaStyle.border)
                             )
                     }
                     .buttonStyle(.plain)
@@ -200,12 +204,12 @@ struct LibraryView: View {
             Circle()
                 .fill(CinemaStyle.accent)
                 .frame(width: 7, height: 7)
-            Text(library.scrapingProgress ?? scrapeNotice ?? "TMDB · Đã khớp \(matched)/\(library.items.count) mục")
-                .font(.caption)
+            Text(library.scrapingProgress ?? scrapeNotice ?? "TMDB · \(matched)/\(library.items.count)")
+                .font(.caption.weight(.medium))
                 .foregroundStyle(CinemaStyle.muted)
                 .lineLimit(1)
             Spacer()
-            Button("Quét TMDB") {
+            Button("Quét") {
                 Task { await runAutoScrape() }
             }
             .font(.caption.weight(.bold))
@@ -213,8 +217,8 @@ struct LibraryView: View {
             .disabled(library.scrapingProgress != nil || library.items.isEmpty)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .obsidianGlass(cornerRadius: 14)
+        .padding(.vertical, 9)
+        .obsidianGlass(cornerRadius: 12)
     }
 
     private var posterGrid: some View {
@@ -275,7 +279,7 @@ struct LibraryView: View {
                         Text(item.displayTitle)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(CinemaStyle.text)
-                            .lineLimit(2)
+                            .lineLimit(1)
                         Text(item.metadata?.year ?? item.source.label)
                             .font(.caption2)
                             .foregroundStyle(CinemaStyle.muted)

@@ -340,7 +340,8 @@ struct UnifiedPlayerLauncher: View {
             resolved = ResolvedPlayback(url: url, smbSource: nil, headers: headers, sidecarSubs: [])
         case .file:
             if let url = library.url(for: item) {
-                resolved = ResolvedPlayback(url: url, smbSource: nil, headers: [:], sidecarSubs: [])
+                let localSubs = FolderSubtitleMatcher.scanLocalDirectory(for: url)
+                resolved = ResolvedPlayback(url: url, smbSource: nil, headers: [:], sidecarSubs: localSubs)
             } else {
                 error = "Không tìm thấy tệp video trên máy."
             }
@@ -348,9 +349,15 @@ struct UnifiedPlayerLauncher: View {
             do {
                 let source = try await smbProfiles.prepare(location)
                 try Task.checkCancellation()
+                let liveSubs = await smbProfiles.findFolderSubtitles(for: location)
+                let storedSubs = item.mediaInfo?.sidecarSubtitles ?? []
+                let mergedPaths = mergeSubtitlePaths(primary: liveSubs, fallback: storedSubs)
+                if !mergedPaths.isEmpty, mergedPaths != storedSubs {
+                    library.setSidecars(item.id, sidecars: mergedPaths)
+                }
                 let sidecars = await smbProfiles.downloadSidecarSubtitles(
                     for: location,
-                    sidecars: item.mediaInfo?.sidecarSubtitles ?? []
+                    sidecars: mergedPaths
                 )
                 guard let url = URL(string: source.uri) else {
                     error = "Địa chỉ luồng SMB không hợp lệ."
@@ -366,10 +373,21 @@ struct UnifiedPlayerLauncher: View {
                 error = "Nguồn WebDAV không còn tồn tại."
                 return
             }
+            let password = webdavProfiles.password(for: profile)
+            let liveSubs = await WebDAVClient.findFolderSubtitles(
+                profile: profile,
+                password: password,
+                videoPath: location.path
+            )
+            let storedSubs = item.mediaInfo?.sidecarSubtitles ?? []
+            let mergedPaths = mergeSubtitlePaths(primary: liveSubs, fallback: storedSubs)
+            if !mergedPaths.isEmpty, mergedPaths != storedSubs {
+                library.setSidecars(item.id, sidecars: mergedPaths)
+            }
             let sidecars = await WebDAVClient.downloadSubtitles(
                 profile: profile,
-                password: webdavProfiles.password(for: profile),
-                paths: item.mediaInfo?.sidecarSubtitles ?? []
+                password: password,
+                paths: mergedPaths
             )
             resolved = ResolvedPlayback(url: cfg.url, smbSource: nil, headers: cfg.headers, sidecarSubs: sidecars)
         case .mediaServer(let location):
@@ -385,6 +403,18 @@ struct UnifiedPlayerLauncher: View {
                 error = "Không tìm thấy cấu hình máy chủ Plex."
             }
         }
+    }
+
+    private func mergeSubtitlePaths(primary: [String], fallback: [String]) -> [String] {
+        var seen = Set<String>()
+        var merged: [String] = []
+        for path in primary + fallback {
+            let key = path.lowercased()
+            if seen.insert(key).inserted {
+                merged.append(path)
+            }
+        }
+        return merged
     }
 
     private struct ResolvedPlayback {

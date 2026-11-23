@@ -110,23 +110,22 @@ struct WebDAVSourceView: View {
                 }
             }
 
+            let subPaths = entries.filter(\.isSubtitle).map(\.path)
             let visible = entries.filter { $0.isDirectory || $0.isVideo }
             if visible.isEmpty {
                 Text("Không có thư mục hoặc tệp video.")
                     .foregroundStyle(CinemaStyle.muted)
             }
             ForEach(visible) { entry in
+                let matchedSubs = entry.isDirectory
+                    ? []
+                    : FolderSubtitleMatcher.match(videoPath: entry.path, candidateSubtitlePaths: subPaths)
                 Button {
                     if entry.isDirectory {
                         Task { await loadFolder(profile, path: entry.path, pushName: entry.name) }
                     } else {
-                        let stem = URL(fileURLWithPath: entry.path).deletingPathExtension().path.lowercased()
-                        let subs = entries.filter(\.isSubtitle).filter {
-                            let s = URL(fileURLWithPath: $0.path).deletingPathExtension().path.lowercased()
-                            return s == stem || s.hasPrefix(stem + ".")
-                        }.map(\.path)
                         let loc = WebDAVMediaLocation(profileID: profile.id, path: entry.path)
-                        _ = play(loc, subs)
+                        _ = play(loc, matchedSubs)
                     }
                 } label: {
                     HStack {
@@ -134,10 +133,17 @@ struct WebDAVSourceView: View {
                             .foregroundStyle(entry.isDirectory ? CinemaStyle.accent : CinemaStyle.gold)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.name).lineLimit(2)
-                            if let size = entry.size, !entry.isDirectory {
-                                Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
-                                    .font(.caption2)
-                                    .foregroundStyle(CinemaStyle.muted)
+                            HStack(spacing: 6) {
+                                if let size = entry.size, !entry.isDirectory {
+                                    Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))
+                                        .font(.caption2)
+                                        .foregroundStyle(CinemaStyle.muted)
+                                }
+                                if !matchedSubs.isEmpty {
+                                    Text("CC · \(matchedSubs.count) phụ đề")
+                                        .font(.caption2.weight(.semibold))
+                                        .foregroundStyle(CinemaStyle.accent)
+                                }
                             }
                         }
                         Spacer()

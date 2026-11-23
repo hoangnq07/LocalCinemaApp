@@ -12,7 +12,7 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Local Cinema"].waitForExistence(timeout: 15))
         attachScreenshot("Obsidian Home")
 
-        app.buttons["Liên kết"].tap()
+        app.buttons["quick-link"].tap()
         let link = app.textFields["https://… hoặc /stream/…"]
         XCTAssertTrue(link.waitForExistence(timeout: 8))
         link.tap()
@@ -51,21 +51,52 @@ final class LibrarySmokeTests: XCTestCase {
         let sdrToHDRBtn = app.buttons["sdr-to-hdr-cinema"]
         XCTAssertTrue(sdrToHDRBtn.waitForExistence(timeout: 4), app.debugDescription)
         sdrToHDRBtn.tap()
-        XCTAssertTrue(app.staticTexts["SDR → HDR"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "SDR → HDR"))
+                .firstMatch.waitForExistence(timeout: 8),
+            app.debugDescription
+        )
 
         let interpBtn = app.buttons["interp-cinema"]
         XCTAssertTrue(interpBtn.waitForExistence(timeout: 4), app.debugDescription)
         interpBtn.tap()
-        XCTAssertTrue(app.staticTexts["Nội suy"].waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(
+            app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Nội suy ·"))
+                .firstMatch.waitForExistence(timeout: 8),
+            app.debugDescription
+        )
 
         app.buttons["Đóng ngăn kéo"].tap()
         app.buttons["player-stats-toggle"].tap()
         let statsHeader = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "Stats for Nerds")).firstMatch
         XCTAssertTrue(statsHeader.waitForExistence(timeout: 6), app.debugDescription)
-        attachScreenshot("Pro Player AI HDR Interp")
+        let statsAI = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "FSRCNNX ×2")).firstMatch
+        XCTAssertTrue(statsAI.waitForExistence(timeout: 6), app.debugDescription)
+        attachScreenshot("Pro Player Icon HUD AI")
+
+        // Verify Landscape rotation button renders cleanly and can toggle back to Portrait
+        app.buttons["player-stats-toggle"].tap()
+        let rotateBtn = app.buttons["player-rotate-toggle"]
+        XCTAssertTrue(rotateBtn.waitForExistence(timeout: 6), app.debugDescription)
+        rotateBtn.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.6))
+        if !videoSize.exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(videoSize.waitForExistence(timeout: 8), app.debugDescription)
+        attachScreenshot("Landscape Player")
+        if !rotateBtn.exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(rotateBtn.waitForExistence(timeout: 6))
+        rotateBtn.tap()
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        if !videoDrawer.exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
 
         // Toggle AI / SDR->HDR / Interpolation back to defaults so subsequent tests start clean
-        app.buttons["player-stats-toggle"].tap()
+        XCTAssertTrue(videoDrawer.waitForExistence(timeout: 6))
         videoDrawer.tap()
         let lanczosBtn = app.buttons["upscaler-lanczos"]
         XCTAssertTrue(lanczosBtn.waitForExistence(timeout: 6), app.debugDescription)
@@ -90,7 +121,7 @@ final class LibrarySmokeTests: XCTestCase {
         app.buttons["Đóng trình phát"].tap()
         XCTAssertTrue(app.buttons["tab-sources"].waitForExistence(timeout: 8))
         app.buttons["tab-sources"].tap()
-        XCTAssertTrue(app.staticTexts["Nguồn & Máy chủ"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Nguồn"].waitForExistence(timeout: 8))
         attachScreenshot("Sources Hub")
 
         app.buttons["tab-settings"].tap()
@@ -101,7 +132,7 @@ final class LibrarySmokeTests: XCTestCase {
     func testBrowseAndPlayAuthenticatedSMB() {
         let app = XCUIApplication()
         app.launch()
-        let sources = app.buttons["Nguồn SMB"]
+        let sources = app.buttons["quick-smb"]
         XCTAssertTrue(sources.waitForExistence(timeout: 15))
         sources.tap()
 
@@ -129,12 +160,29 @@ final class LibrarySmokeTests: XCTestCase {
             waitUntilHittable(video, dismissingPasswordPromptIn: app, timeout: 20),
             app.debugDescription
         )
+        // Guard against a late iOS Save Password AutoFill sheet appearing right after navigation
+        RunLoop.current.run(until: Date().addingTimeInterval(0.6))
+        dismissPasswordPromptIfPresent(in: app)
+        XCTAssertTrue(
+            waitUntilHittable(video, dismissingPasswordPromptIn: app, timeout: 8),
+            app.debugDescription
+        )
         attachScreenshot("SMB Folder")
         video.tap()
 
         let videoSize = app.staticTexts["320 × 180"]
         XCTAssertTrue(videoSize.waitForExistence(timeout: 25), app.debugDescription)
         attachScreenshot("SMB MKV Playback")
+
+        // Verify differently-named folder subtitle (VietSub.srt) was automatically loaded & selected
+        let subBtn = app.buttons["player-drawer-sub"]
+        XCTAssertTrue(subBtn.waitForExistence(timeout: 6), app.debugDescription)
+        subBtn.tap()
+        let autoVietSub = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS %@", "VietSub")).firstMatch
+        XCTAssertTrue(autoVietSub.waitForExistence(timeout: 12), app.debugDescription)
+        attachScreenshot("SMB Auto Subtitles")
+        app.buttons["Đóng ngăn kéo"].tap()
 
         let timeReadout = app.buttons["player-time-readout"]
         XCTAssertTrue(timeReadout.waitForExistence(timeout: 8), app.debugDescription)
@@ -161,6 +209,14 @@ final class LibrarySmokeTests: XCTestCase {
         }
         expectation(for: rewound, evaluatedWith: timeReadout)
         waitForExpectations(timeout: 8)
+    }
+
+    private func dismissPasswordPromptIfPresent(in app: XCUIApplication) {
+        let notNow = app.buttons["Not Now"]
+        if notNow.exists && notNow.isHittable {
+            notNow.tap()
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        }
     }
 
     private func waitUntilHittable(

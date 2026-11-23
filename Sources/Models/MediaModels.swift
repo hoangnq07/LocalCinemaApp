@@ -819,3 +819,194 @@ enum FilenameParser {
         }
     }
 }
+
+// MARK: - Folder Subtitle Auto-Discovery & Matching
+
+enum FolderSubtitleMatcher {
+    static let subtitleExtensions: Set<String> = ["srt", "ass", "ssa", "vtt", "sub"]
+    static let subtitleFolderNames: Set<String> = ["subs", "subtitles", "sub", "phude", "phu de"]
+
+    static func match(videoPath: String, candidateSubtitlePaths: [String]) -> [String] {
+        let normVideo = normalizePath(videoPath)
+        let videoURL = URL(fileURLWithPath: normVideo)
+        let videoFilename = videoURL.lastPathComponent
+        let videoStem = videoURL.deletingPathExtension().lastPathComponent.lowercased()
+        let videoComps = directoryComponents(of: normVideo)
+        let videoEp = FilenameParser.parse(videoFilename).episodeInfo
+
+        struct Candidate {
+            let originalPath: String
+            let tier: Int
+            let langRank: Int
+            let sortKey: String
+        }
+
+        var hasSpecificSubs = false
+        var prelim: [(Candidate, Bool)] = []
+
+        for raw in candidateSubtitlePaths {
+            let normSub = normalizePath(raw)
+            let subURL = URL(fileURLWithPath: normSub)
+            let ext = subURL.pathExtension.lowercased()
+            guard subtitleExtensions.contains(ext) else { continue }
+
+            let subComps = directoryComponents(of: normSub)
+            guard isInVideoFolderOrSubsSubfolder(subDir: subComps, videoDir: videoComps, videoStem: videoStem) else {
+                continue
+            }
+
+            let subFile = subURL.lastPathComponent
+            let subStem = subURL.deletingPathExtension().lastPathComponent.lowercased()
+            let subEp = FilenameParser.parse(subFile).episodeInfo
+
+            let tier: Int
+            if subStem == videoStem
+                || subStem.hasPrefix(videoStem + ".")
+                || subStem.hasPrefix(videoStem + "_")
+                || subStem.hasPrefix(videoStem + "-")
+                || subStem.hasPrefix(videoStem + " ") {
+                tier = 1
+                hasSpecificSubs = true
+            } else if let vEp = videoEp, let sEp = subEp, vEp.season == sEp.season, vEp.episode == sEp.episode {
+                tier = 2
+                hasSpecificSubs = true
+            } else if let vEp = videoEp, let sEp = subEp, (vEp.season != sEp.season || vEp.episode != sEp.episode) {
+                continue
+            } else if videoEp == nil, subEp != nil {
+                continue
+            } else {
+                tier = 3
+            }
+
+            let rank = languagePriority(for: subFile)
+            prelim.append((
+                Candidate(originalPath: raw, tier: tier, langRank: rank, sortKey: normSub.lowercased()),
+                subEp != nil
+            ))
+        }
+
+        let filtered = prelim.map(\.0).filter { cand in
+            // If video matched exact stem or exact episode subs, still allow folder-wide subs as secondary options,
+            // already ranked after tier 1/2.
+            _ = hasSpecificSubs
+            return true
+        }
+
+        let sorted = filtered.sorted { lhs, rhs in
+            if lhs.tier != rhs.tier { return lhs.tier < rhs.tier }
+            if lhs.langRank != rhs.langRank { return lhs.langRank < rhs.langRank }
+            return lhs.sortKey.localizedStandardCompare(rhs.sortKey) == .orderedAscending
+        }
+
+        var seen = Set<String>()
+        var result: [String] = []
+        for entry in sorted {
+            let key = normalizePath(entry.originalPath).lowercased()
+            if seen.insert(key).inserted {
+                result.append(entry.originalPath)
+            }
+        }
+        return result
+    }
+
+    static func scanLocalDirectory(for videoURL: URL) -> [URL] {
+        let fm = FileManager.default
+        let folder = videoURL.deletingLastPathComponent()
+        let videoStem = videoURL.deletingPathExtension().lastPathComponent.lowercased()
+        guard let topItems = try? fm.contentsOfDirectory(
+            at: folder,
+            includingPropertiesForKeys: [.isDirectoryKey, .isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var candidateURLs: [URL] = []
+        for item in topItems {
+            let values = try? item.resourceValues(forKeys: [.isDirectoryKey])
+            if values?.isDirectory == true {
+                if isSubtitleFolderName(item.lastPathComponent),
+                   let subItems = try? fm.contentsOfDirectory(
+                       at: item,
+                       includingPropertiesForKeys: [.isDirectoryKey],
+                       options: [.skipsHiddenFiles]
+                   ) {
+                    for subItem in subItems {
+                        let subVals = try? subItem.resourceValues(forKeys: [.isDirectoryKey])
+                        if subVals?.isDirectory == true {
+                            if subItem.lastPathComponent.lowercased() == videoStem,
+                               let nested = try? fm.contentsOfDirectory(at: subItem, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]) {
+                                candidateURLs.append(contentsOf: nested)
+                            }
+                        } else if subtitleExtensions.contains(subItem.pathExtension.lowercased()) {
+                            candidateURLs.append(subItem)
+                        }
+                    }
+                }
+            } else if subtitleExtensions.contains(item.pathExtension.lowercased()) {
+                candidateURLs.append(item)
+            }
+        }
+
+        var byPath: [String: URL] = [:]
+        for url in candidateURLs {
+            byPath[normalizePath(url.path)] = url
+        }
+        let orderedPaths = match(videoPath: videoURL.path, candidateSubtitlePaths: candidateURLs.map(\.path))
+        return orderedPaths.compactMap { byPath[normalizePath($0)] }
+    }
+
+    static func isSubtitleFolderName(_ name: String) -> Bool {
+        let normalized = name
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return subtitleFolderNames.contains(normalized)
+    }
+
+    private static func normalizePath(_ path: String) -> String {
+        var result = path.replacingOccurrences(of: "\\", with: "/")
+        while result.contains("//") {
+            result = result.replacingOccurrences(of: "//", with: "/")
+        }
+        if result.count > 1 && result.hasSuffix("/") {
+            result.removeLast()
+        }
+        return result
+    }
+
+    private static func directoryComponents(of normalizedPath: String) -> [String] {
+        Array(normalizedPath.split(separator: "/").map(String.init).dropLast())
+    }
+
+    private static func isInVideoFolderOrSubsSubfolder(subDir: [String], videoDir: [String], videoStem: String) -> Bool {
+        if subDir == videoDir { return true }
+        guard subDir.count > videoDir.count,
+              Array(subDir.prefix(videoDir.count)) == videoDir else {
+            return false
+        }
+        let extra = Array(subDir.dropFirst(videoDir.count))
+        if extra.count == 1 {
+            return isSubtitleFolderName(extra[0])
+        }
+        if extra.count == 2 {
+            return isSubtitleFolderName(extra[0]) && extra[1].lowercased() == videoStem
+        }
+        return false
+    }
+
+    private static func languagePriority(for filename: String) -> Int {
+        let lower = filename
+            .folding(options: [.diacriticInsensitive, .caseInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .lowercased()
+        let patternVI = #"(?:^|[._\-\s\[\(])(vi|vie|vn|viet|vietsub|vsub|tiengviet|tieng\s*viet|vietnamese)(?:[._\-\s\]\)]|$)"#
+        if lower.range(of: patternVI, options: .regularExpression) != nil {
+            return 0
+        }
+        let patternEN = #"(?:^|[._\-\s\[\(])(en|eng|english)(?:[._\-\s\]\)]|$)"#
+        if lower.range(of: patternEN, options: .regularExpression) != nil {
+            return 1
+        }
+        return 2
+    }
+}

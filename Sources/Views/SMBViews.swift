@@ -187,8 +187,8 @@ struct SMBSourceView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(entry.name).lineLimit(2)
                             if !entry.sidecars.isEmpty {
-                                Text("Phụ đề ngoài: \(entry.sidecars.count) tệp")
-                                    .font(.caption2)
+                                Text("CC · \(entry.sidecars.count) phụ đề")
+                                    .font(.caption2.weight(.semibold))
                                     .foregroundStyle(CinemaStyle.accent)
                             }
                         }
@@ -227,10 +227,13 @@ struct SMBSourceView: View {
         guard let target = SMBAddress(address), !loading else { return }
         focusedField = nil
         let secret = password
+        let trimmedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedUser = user.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedID = editingID ?? profiles.existingProfileID(matchingAddress: trimmedAddress, user: trimmedUser) ?? UUID()
         let profile = SMBProfile(
-            id: editingID ?? UUID(),
-            address: address.trimmingCharacters(in: .whitespacesAndNewlines),
-            user: user.trimmingCharacters(in: .whitespacesAndNewlines),
+            id: resolvedID,
+            address: trimmedAddress,
+            user: trimmedUser,
             domain: domain.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         let destination = target.folders.first.map {
@@ -315,7 +318,8 @@ struct SMBSourceView: View {
         case .folder(let share, let path):
             try await client.connectShare(name: share)
             let rows = try await client.contentsOfDirectory(atPath: filePath(path))
-            var subsByStem: [String: [String]] = [:]
+            var subtitlePaths: [String] = []
+            var subFolderPaths: [[String]] = []
             var rawEntries: [(name: String, folder: Bool)] = []
 
             for row in rows {
@@ -324,10 +328,25 @@ struct SMBSourceView: View {
                 let url = URL(fileURLWithPath: name)
                 let suffix = url.pathExtension.lowercased()
                 if !folder && MediaLibrary.subtitleExtensions.contains(suffix) {
-                    let stem = url.deletingPathExtension().lastPathComponent.lowercased()
-                    subsByStem[stem, default: []].append(filePath(path + [name]))
+                    subtitlePaths.append(filePath(path + [name]))
                 } else if folder || MediaLibrary.fileExtensions.contains(suffix) {
                     rawEntries.append((name, folder))
+                    if folder && FolderSubtitleMatcher.isSubtitleFolderName(name) {
+                        subFolderPaths.append(path + [name])
+                    }
+                }
+            }
+
+            for subPath in subFolderPaths.prefix(2) {
+                if let subRows = try? await client.contentsOfDirectory(atPath: filePath(subPath)) {
+                    for sRow in subRows {
+                        guard let sName = sRow[.nameKey] as? String,
+                              SMBAddress.validComponent(sName),
+                              (sRow[.isDirectoryKey] as? NSNumber)?.boolValue != true else { continue }
+                        if MediaLibrary.subtitleExtensions.contains(URL(fileURLWithPath: sName).pathExtension.lowercased()) {
+                            subtitlePaths.append(filePath(subPath + [sName]))
+                        }
+                    }
                 }
             }
 
@@ -335,10 +354,9 @@ struct SMBSourceView: View {
                 if row.folder {
                     return Entry(name: row.name, directory: true, sidecars: [])
                 }
-                let stem = URL(fileURLWithPath: row.name).deletingPathExtension().lastPathComponent.lowercased()
-                let exact = subsByStem[stem] ?? []
-                let prefixed = subsByStem.filter { $0.key.hasPrefix(stem + ".") }.flatMap(\.value)
-                return Entry(name: row.name, directory: false, sidecars: Array(Set(exact + prefixed)).sorted())
+                let videoPath = filePath(path + [row.name])
+                let sidecars = FolderSubtitleMatcher.match(videoPath: videoPath, candidateSubtitlePaths: subtitlePaths)
+                return Entry(name: row.name, directory: false, sidecars: sidecars)
             }.sorted { left, right in
                 if left.directory != right.directory { return left.directory }
                 return left.name.localizedStandardCompare(right.name) == .orderedAscending
