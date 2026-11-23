@@ -83,9 +83,15 @@ struct CinemaSettings: View {
                     Text("Dùng TMDB để tìm poster, nội dung và điểm đánh giá. Mã truy cập được lưu trong Keychain trên máy.")
                 }
                 Section("Giới thiệu") {
+                    Link(destination: URL(string: "https://www.themoviedb.org")!) {
+                        Image("TMDB")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 58)
+                            .accessibilityLabel("The Movie Database")
+                    }
                     Text("This product uses the TMDB API but is not endorsed or certified by TMDB.")
                         .font(.footnote)
-                    Link("The Movie Database", destination: URL(string: "https://www.themoviedb.org")!)
                     Link("MPVKit và thông tin giấy phép",
                          destination: URL(string: "https://github.com/mpvkit/MPVKit/tree/1.0.0")!)
                 }
@@ -178,7 +184,7 @@ struct MovieDetails: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Đóng") { dismiss() } }
             }
             .sheet(isPresented: $showingSearch) {
-                MetadataSearch(query: current.displayTitle) { value in
+                MetadataSearch(query: current.metadataQuery) { value in
                     library.setMetadata(current.id, value: value)
                 }
             }
@@ -197,7 +203,7 @@ private struct MetadataSearch: View {
     @State var query: String
     let select: (MovieMetadata) -> Void
     @State private var results: [MovieMetadata] = []
-    @State private var searchTerm: String?
+    @State private var request: SearchRequest?
     @State private var loading = false
     @State private var message: String?
 
@@ -244,8 +250,11 @@ private struct MetadataSearch: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Đóng") { dismiss() } }
             }
-            .task(id: searchTerm) {
-                if let searchTerm { await fetch(searchTerm) }
+            .task(id: request) {
+                if let request { await fetch(request.term) }
+            }
+            .onAppear {
+                if request == nil { search() }
             }
         }
     }
@@ -253,11 +262,7 @@ private struct MetadataSearch: View {
     private func search() {
         let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else { return }
-        if term == searchTerm {
-            Task { await fetch(term) }
-        } else {
-            searchTerm = term
-        }
+        request = SearchRequest(term: term)
     }
 
     private func fetch(_ term: String) async {
@@ -277,5 +282,10 @@ private struct MetadataSearch: View {
         } catch {
             if !Task.isCancelled { message = error.localizedDescription }
         }
+    }
+
+    private struct SearchRequest: Equatable {
+        let id = UUID()
+        let term: String
     }
 }

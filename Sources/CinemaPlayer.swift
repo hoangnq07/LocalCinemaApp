@@ -9,6 +9,7 @@ struct CinemaPlayer: View {
     @State private var controls = true
     @State private var scrubTime: Double?
     @State private var speed: Double = 1
+    @State private var subtitleOffset = 0.0
     @State private var lastSaved = 0.0
     @State private var closing = false
 
@@ -169,6 +170,14 @@ struct CinemaPlayer: View {
             ForEach(status.subtitles) { track in
                 checkButton(track.label, selected: track.selected) { player.selectSubtitle(track.id) }
             }
+            if !status.subtitles.isEmpty {
+                Menu("Đồng bộ phụ đề") {
+                    Text("\(subtitleOffset.formatted(.number.precision(.fractionLength(2)))) giây")
+                    Button("Hiện sớm 0,25 giây") { shiftSubtitles(-0.25) }
+                    Button("Hiện muộn 0,25 giây") { shiftSubtitles(0.25) }
+                    Button("Đặt lại") { shiftSubtitles(-subtitleOffset) }
+                }
+            }
         } label: {
             menuIcon("captions.bubble")
         }
@@ -232,5 +241,10 @@ struct CinemaPlayer: View {
         guard status.ready, status.duration > 0 else { return }
         save(status.time, status.duration)
         lastSaved = status.time
+    }
+
+    private func shiftSubtitles(_ delta: Double) {
+        subtitleOffset += delta
+        player.setSubtitleOffset(subtitleOffset)
     }
 }

@@ -133,6 +133,7 @@ final class MPVPlayback: ObservableObject {
 
     func selectAudio(_ id: Int) { work.async { self.set("aid", String(id)) } }
     func selectSubtitle(_ id: Int?) { work.async { self.set("sid", id.map(String.init) ?? "no") } }
+    func setSubtitleOffset(_ seconds: Double) { work.async { self.set("sub-delay", String(seconds)) } }
     func setSpeed(_ speed: Double) { work.async { self.set("speed", String(speed)) } }
     func setScaling(_ scale: VideoScaling) { work.async { self.set("scale", scale.filter) } }
     func setOutput(_ audio: AudioOutput) { work.async { self.set("audio-channels", audio.option) } }

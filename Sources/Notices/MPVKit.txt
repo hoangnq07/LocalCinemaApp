@@ -1,0 +1,15 @@
+Local Cinema uses the LGPL build of MPVKit 1.0.0, which integrates mpv and FFmpeg.
+The GNU LGPL 3.0 and GPL 3.0 texts are included alongside this notice.
+
+MPVKit source, dependency build scripts and build instructions
+https://github.com/mpvkit/MPVKit/tree/1.0.0
+
+Exact upstream binaries and source archive
+https://github.com/mpvkit/MPVKit/releases/tag/1.0.0
+
+Local Cinema source and build instructions
+https://github.com/hoangnq07/LocalCinemaApp
+
+To rebuild with a modified MPVKit, build that checkout using its iOS
+instructions and point the MPVKit entry in project.yml at the local package.
+Run xcodegen generate, then build the LocalCinema scheme with Xcode.

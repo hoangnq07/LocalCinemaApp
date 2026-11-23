@@ -20,6 +20,17 @@ struct MediaItem: Codable, Identifiable, Equatable, Sendable {
 
     var displayTitle: String { metadata?.title ?? title }
 
+    var metadataQuery: String {
+        if let metadata { return metadata.title }
+        let withoutTags = title
+            .replacingOccurrences(of: #"\[[^\]]+\]"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"(?i)\s+(?:\d{3,4}p|4k|uhd|bluray|web[- ]?(?:dl|rip)|hevc|x26[45])\b.*$"#,
+                                  with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+\(?((19|20)\d{2})\)?$"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return withoutTags.isEmpty ? title : withoutTags
+    }
+
     var progress: Double {
         guard duration > 0 else { return 0 }
         return min(max(position / duration, 0), 1)
