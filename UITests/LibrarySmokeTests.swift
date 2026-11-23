@@ -67,6 +67,16 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertTrue(statsHeader.waitForExistence(timeout: 6), app.debugDescription)
         attachScreenshot("Pro Player AI HDR Interp")
 
+        // Toggle AI / SDR->HDR / Interpolation back to defaults so subsequent tests start clean
+        app.buttons["player-stats-toggle"].tap()
+        videoDrawer.tap()
+        app.buttons["upscaler-lanczos"].tap()
+        app.buttons["sdr-to-hdr-off"].tap()
+        app.buttons["interp-off"].tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: activeAI)
+        waitForExpectations(timeout: 8)
+        app.buttons["Đóng ngăn kéo"].tap()
+
         // Verify audio tracks drawer
         app.buttons["player-drawer-audio"].tap()
         let surround = app.descendants(matching: .any)

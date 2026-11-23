@@ -52,7 +52,7 @@ final class WebDAVProfiles: ObservableObject {
         let next = [profile] + saved.filter { $0.id != profile.id }
         let data = try JSONEncoder().encode(next)
         guard KeychainStore.write(password, service: keychainService, account: profile.id.uuidString) else {
-            throw WebDAVError.credentials
+            throw WebDAVClient.WebDAVError.credentials
         }
         UserDefaults.standard.set(data, forKey: storeKey)
         saved = next

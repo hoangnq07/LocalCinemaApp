@@ -16,7 +16,8 @@ final class FilenameParserTests: XCTestCase {
 
     func testParsesStandardSeasonEpisodeNotation() {
         let parsed = FilenameParser.parse("Shogun.2024.S01E04.2160p.HDR10+.EAC3.5.1.mkv")
-        XCTAssertEqual(parsed.cleanTitle, "Shogun 2024")
+        XCTAssertEqual(parsed.cleanTitle, "Shogun")
+        XCTAssertEqual(parsed.year, "2024")
         XCTAssertEqual(parsed.episodeInfo?.season, 1)
         XCTAssertEqual(parsed.episodeInfo?.episode, 4)
         XCTAssertEqual(parsed.technicalInfo.hdrLabel, "HDR10+")
