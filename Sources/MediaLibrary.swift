@@ -40,11 +40,13 @@ struct MediaItem: Codable, Identifiable, Equatable, Sendable {
 enum MediaSource: Codable, Equatable, Sendable {
     case remote(URL)
     case file(String)
+    case smb(SMBMediaLocation)
 
     var label: String {
         switch self {
         case .remote(let url): return url.host ?? "Liên kết"
         case .file: return "Tệp trên iPhone"
+        case .smb(let location): return "SMB · \(location.share)"
         }
     }
 
@@ -53,6 +55,7 @@ enum MediaSource: Codable, Equatable, Sendable {
         switch self {
         case .remote(let url): suffix = url.pathExtension
         case .file(let filename): suffix = URL(fileURLWithPath: filename).pathExtension
+        case .smb(let location): suffix = URL(fileURLWithPath: location.path).pathExtension
         }
         return MediaLibrary.fileExtensions.contains(suffix.lowercased()) ? suffix.uppercased() : nil
     }
@@ -88,16 +91,25 @@ final class MediaLibrary: ObservableObject {
 
     func item(_ id: UUID) -> MediaItem? { items.first { $0.id == id } }
 
-    func url(for item: MediaItem) -> URL {
+    func url(for item: MediaItem) -> URL? {
         switch item.source {
         case .remote(let url): return url
         case .file(let filename): return folder.appendingPathComponent(filename)
+        case .smb: return nil
         }
     }
 
     func addLink(_ url: URL, title: String) -> MediaItem? {
         if let existing = items.first(where: { $0.source == .remote(url) }) { return existing }
         let entry = MediaItem(title: title.isEmpty ? Self.guessTitle(url) : title, source: .remote(url))
+        return write([entry] + items) ? entry : nil
+    }
+
+    func addSMB(_ location: SMBMediaLocation) -> MediaItem? {
+        let source = MediaSource.smb(location)
+        if let existing = items.first(where: { $0.source == source }) { return existing }
+        let title = Self.guessTitle(URL(fileURLWithPath: location.path))
+        let entry = MediaItem(title: title, source: source)
         return write([entry] + items) ? entry : nil
     }
 
@@ -152,8 +164,8 @@ final class MediaLibrary: ObservableObject {
 
     func remove(_ item: MediaItem) {
         guard write(items.filter { $0.id != item.id }) else { return }
-        if case .file = item.source {
-            try? FileManager.default.removeItem(at: url(for: item))
+        if case .file = item.source, let url = url(for: item) {
+            try? FileManager.default.removeItem(at: url)
         }
     }
 

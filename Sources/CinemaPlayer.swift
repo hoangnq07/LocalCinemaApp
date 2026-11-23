@@ -15,6 +15,7 @@ struct CinemaPlayer: View {
 
     let item: MediaItem
     let url: URL
+    var smbSource: SMBReadSource? = nil
     let save: (Double, Double) -> Void
 
     private var status: PlaybackStatus { player.status }
@@ -24,7 +25,7 @@ struct CinemaPlayer: View {
             Color.black.ignoresSafeArea()
             MPVSurface { layer in
                 guard !closing else { return }
-                player.open(url, surface: layer, start: item.progress < 0.98 ? item.position : 0,
+                player.open(url, source: smbSource, surface: layer, start: item.progress < 0.98 ? item.position : 0,
                             scaler: scaling, audio: audioOutput)
             }
             .ignoresSafeArea()

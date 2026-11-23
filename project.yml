@@ -7,6 +7,9 @@ packages:
   MPVKit:
     url: https://github.com/mpvkit/MPVKit.git
     exactVersion: "1.0.0"
+  AMSMB2:
+    url: https://github.com/amosavian/AMSMB2.git
+    exactVersion: "4.0.3"
 targets:
   LocalCinema:
     type: application
@@ -16,6 +19,8 @@ targets:
     dependencies:
       - package: MPVKit
         product: MPVKit
+      - package: AMSMB2
+        product: AMSMB2
     info:
       path: Info.plist
       properties:
@@ -33,8 +38,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.local.cinema
-        CURRENT_PROJECT_VERSION: 2
-        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: 4
+        MARKETING_VERSION: "1.3.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   LocalCinemaUITests:
     platform: iOS

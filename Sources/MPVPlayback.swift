@@ -43,12 +43,14 @@ final class MPVPlayback: ObservableObject {
     private let work = DispatchQueue(label: "com.local.cinema.playback", qos: .userInitiated)
     private var handle: OpaquePointer?
     private var surface: CAMetalLayer?
+    private var smbSource: SMBReadSource?
     private var timer: DispatchSourceTimer?
     private var progress = PlaybackStatus()
     private var initialTime = 0.0
     private var nextTrackRead = Date.distantPast
 
-    func open(_ url: URL, surface: CAMetalLayer, start: Double, scaler: VideoScaling, audio: AudioOutput) {
+    func open(_ url: URL, source: SMBReadSource? = nil, surface: CAMetalLayer, start: Double,
+              scaler: VideoScaling, audio: AudioOutput) {
         work.async {
             guard self.handle == nil else { return }
             guard let client = mpv_create() else {
@@ -98,7 +100,17 @@ final class MPVPlayback: ObservableObject {
                 self.finish()
                 return
             }
-            self.command("loadfile", url.isFileURL ? url.path : url.absoluteString, "replace")
+            if let source {
+                self.smbSource = source
+                let status = source.register(on: client)
+                guard status >= 0 else {
+                    self.fail("Không thể khởi tạo luồng SMB.", code: status)
+                    self.finish()
+                    return
+                }
+            }
+            let path = source?.uri ?? (url.isFileURL ? url.path : url.absoluteString)
+            self.command("loadfile", path, "replace")
             let timer = DispatchSource.makeTimerSource(queue: self.work)
             timer.schedule(deadline: .now(), repeating: .milliseconds(160), leeway: .milliseconds(30))
             timer.setEventHandler { [weak self] in self?.poll() }
@@ -211,6 +223,7 @@ final class MPVPlayback: ObservableObject {
         timer = nil
         if let handle { mpv_terminate_destroy(handle) }
         handle = nil
+        smbSource = nil
         surface = nil
     }
 

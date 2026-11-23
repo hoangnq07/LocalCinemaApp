@@ -1,0 +1,11 @@
+Local Cinema includes AMSMB2 4.0.3 and its bundled libsmb2 source.
+The GNU LGPL 2.1 text is included alongside this notice.
+
+AMSMB2 source and package build instructions
+https://github.com/amosavian/AMSMB2/tree/4.0.3
+
+libsmb2 source
+https://github.com/sahlberg/libsmb2
+
+To rebuild Local Cinema with modified SMB libraries, point the AMSMB2 entry
+in project.yml at a local package checkout and run xcodegen generate.

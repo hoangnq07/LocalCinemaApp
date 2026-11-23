@@ -19,6 +19,7 @@ struct CinemaHome: View {
     @State private var importing = false
     @State private var pickingFile = false
     @State private var query = ""
+    @StateObject private var smbProfiles = SMBProfiles()
 
     private var visibleItems: [MediaItem] {
         let collection = section == .favorites ? library.items.filter(\.favorite) : library.items
@@ -60,6 +61,13 @@ struct CinemaHome: View {
                 }
             case .settings:
                 CinemaSettings(serverURL: $serverURL)
+            case .smb:
+                SMBSourceView(profiles: smbProfiles) { location in
+                    guard let item = library.addSMB(location) else { return false }
+                    playAfterClosingDetails = item
+                    page = nil
+                    return true
+                }
             case .details(let id):
                 if let item = library.item(id) {
                     MovieDetails(item: item, library: library) {
@@ -70,8 +78,14 @@ struct CinemaHome: View {
             }
         }
         .fullScreenCover(item: $playing) { item in
-            CinemaPlayer(item: item, url: library.url(for: item)) { position, duration in
-                library.markPlayed(item.id, position: position, duration: duration)
+            if case .smb(let location) = item.source {
+                SMBPlayerView(profiles: smbProfiles, item: item, location: location) { position, duration in
+                    library.markPlayed(item.id, position: position, duration: duration)
+                }
+            } else if let url = library.url(for: item) {
+                CinemaPlayer(item: item, url: url) { position, duration in
+                    library.markPlayed(item.id, position: position, duration: duration)
+                }
             }
         }
         .fileImporter(isPresented: $pickingFile, allowedContentTypes: MediaLibrary.fileTypes,
@@ -168,7 +182,8 @@ struct CinemaHome: View {
     private var sources: some View {
         HStack(spacing: 10) {
             sourceButton("Tệp trên máy", icon: "folder") { pickingFile = true }
-            sourceButton("Máy chủ LAN", icon: "server.rack") { page = .link }
+            sourceButton("Liên kết", icon: "link") { page = .link }
+            sourceButton("Nguồn SMB", icon: "server.rack") { page = .smb }
         }
         .disabled(importing)
         .overlay(alignment: .trailing) {
@@ -278,6 +293,7 @@ struct CinemaHome: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("media-item-\(item.title)")
                         .contextMenu {
                             Button { playing = item } label: { Label("Phát", systemImage: "play.fill") }
                             Button {
@@ -360,11 +376,12 @@ struct CinemaHome: View {
     private enum SectionChoice { case library, favorites }
 
     private enum Page: Identifiable {
-        case link, settings, details(UUID)
+        case link, smb, settings, details(UUID)
 
         var id: String {
             switch self {
             case .link: return "link"
+            case .smb: return "smb"
             case .settings: return "settings"
             case .details(let id): return id.uuidString
             }

@@ -50,8 +50,9 @@ jobs:
           path: LocalCinema-unsigned.ipa
           if-no-files-found: error
 
-      - name: Exercise library and MKV in the iPhone simulator
+      - name: Exercise HTTP and authenticated SMB playback in the iPhone simulator
         if: github.event_name == 'workflow_dispatch'
+        timeout-minutes: 18
         run: |
           device=$(xcrun simctl list devices available -j | python3 -c '
           import json, sys
@@ -62,9 +63,21 @@ jobs:
               sys.exit("No available iPhone simulator")
           print(phones[0]["udid"])
           ')
+          python3 -m venv "$RUNNER_TEMP/smb-venv"
+          "$RUNNER_TEMP/smb-venv/bin/pip" install --quiet impacket==0.13.1
+          mkdir -p "$RUNNER_TEMP/smb-share/Danh mục"
+          cp UITests/Fixture/surround.mkv "$RUNNER_TEMP/smb-share/Danh mục/"
           python3 -m http.server 8712 --bind 127.0.0.1 --directory UITests/Fixture > "$RUNNER_TEMP/fixture.log" 2>&1 &
-          fixture_pid=$!
-          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+          http_pid=$!
+          "$RUNNER_TEMP/smb-venv/bin/python" UITests/Fixture/smb_server.py "$RUNNER_TEMP/smb-share" > "$RUNNER_TEMP/smb.log" 2>&1 &
+          smb_pid=$!
+          trap 'kill "$http_pid" "$smb_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..20}; do
+            if nc -z 127.0.0.1 1445; then break; fi
+            kill -0 "$smb_pid"
+            sleep 1
+          done
+          nc -z 127.0.0.1 1445
 
           xcodebuild \
             -project LocalCinema.xcodeproj \
@@ -72,6 +85,8 @@ jobs:
             -destination "platform=iOS Simulator,id=$device" \
             -derivedDataPath build \
             -parallel-testing-enabled NO \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 240 \
             -resultBundlePath "$RUNNER_TEMP/LocalCinemaSmoke" \
             test
 
@@ -91,6 +106,14 @@ jobs:
           name: LocalCinema-simulator-report
           path: |
             ${{ runner.temp }}/LocalCinemaSmoke.xcresult
-            ${{ runner.temp }}/LocalCinemaScreenshots
             ${{ runner.temp }}/fixture.log
+            ${{ runner.temp }}/smb.log
+          if-no-files-found: ignore
+
+      - name: Upload simulator screenshots
+        if: always() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: LocalCinema-simulator-screenshots
+          path: ${{ runner.temp }}/LocalCinemaScreenshots
           if-no-files-found: ignore

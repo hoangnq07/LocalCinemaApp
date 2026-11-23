@@ -12,7 +12,7 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Local Cinema"].waitForExistence(timeout: 15))
         attachScreenshot("Library")
 
-        app.buttons["Mở liên kết"].tap()
+        app.buttons["Liên kết"].tap()
         let link = app.textFields["https://… hoặc /stream/…"]
         XCTAssertTrue(link.waitForExistence(timeout: 8))
         link.tap()
@@ -21,6 +21,9 @@ final class LibrarySmokeTests: XCTestCase {
         title.tap()
         title.typeText("MKV Smoke")
         app.buttons["Thêm"].tap()
+        let card = app.buttons["media-item-MKV Smoke"]
+        XCTAssertTrue(card.waitForExistence(timeout: 12))
+        card.tap()
         let play = app.buttons["Phát phim"]
         XCTAssertTrue(play.waitForExistence(timeout: 12))
         play.tap()
@@ -44,5 +47,41 @@ final class LibrarySmokeTests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+    }
+
+    func testBrowseAndPlayAuthenticatedSMB() {
+        let app = XCUIApplication()
+        app.launch()
+        let sources = app.buttons["Nguồn SMB"]
+        XCTAssertTrue(sources.waitForExistence(timeout: 15))
+        sources.tap()
+
+        let address = app.textFields["smb-address"]
+        XCTAssertTrue(address.waitForExistence(timeout: 8))
+        address.tap()
+        address.typeText("smb://127.0.0.1:1445/MOVIES")
+        let user = app.textFields["smb-user"]
+        user.tap()
+        user.typeText("cinema")
+        let password = app.secureTextFields["smb-password"]
+        password.tap()
+        password.typeText("cinema-test")
+        app.buttons["Kết nối"].tap()
+
+        let folder = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Danh mục")).firstMatch
+        XCTAssertTrue(folder.waitForExistence(timeout: 20), app.debugDescription)
+        folder.tap()
+        let video = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "surround.mkv")).firstMatch
+        XCTAssertTrue(video.waitForExistence(timeout: 10), app.debugDescription)
+        attachScreenshot("SMB folder")
+        video.tap()
+
+        let videoSize = app.staticTexts["320 × 180"]
+        XCTAssertTrue(videoSize.waitForExistence(timeout: 25), app.debugDescription)
+        XCTAssertTrue(app.buttons["Âm thanh"].exists)
+        attachScreenshot("SMB MKV playback")
+        app.buttons["Tiến 10 giây"].tap()
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "0:(1[01]|12) / 0:12"))
+            .firstMatch.waitForExistence(timeout: 8), app.debugDescription)
     }
 }
