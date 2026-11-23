@@ -18,6 +18,7 @@ struct SMBSourceView: View {
     @State private var loading = false
     @State private var message: String?
     @State private var removeProfile: SMBProfile?
+    @FocusState private var focusedField: Field?
 
     var body: some View {
         NavigationStack {
@@ -88,18 +89,22 @@ struct SMBSourceView: View {
 
             Section(editingID == nil ? "Kết nối mới" : "Sửa kết nối") {
                 TextField("smb://192.168.1.20/Phim", text: $address)
+                    .focused($focusedField, equals: .address)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("smb-address")
                 TextField("Tên người dùng (trống nếu Guest)", text: $user)
+                    .focused($focusedField, equals: .user)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .accessibilityIdentifier("smb-user")
                 SecureField("Mật khẩu SMB", text: $password)
+                    .focused($focusedField, equals: .password)
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("smb-password")
                 TextField("Domain hoặc Workgroup (tùy chọn)", text: $domain)
+                    .focused($focusedField, equals: .domain)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
@@ -150,7 +155,11 @@ struct SMBSourceView: View {
                         Spacer()
                         Image(systemName: entry.directory ? "chevron.right" : "play.fill").font(.caption)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("smb-entry-\(entry.name)")
             }
         }
         .disabled(loading)
@@ -170,6 +179,7 @@ struct SMBSourceView: View {
 
     private func connect() {
         guard let target = SMBAddress(address), !loading else { return }
+        focusedField = nil
         let secret = password
         let profile = SMBProfile(id: editingID ?? UUID(),
                                  address: address.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -266,6 +276,8 @@ struct SMBSourceView: View {
         let name: String
         let directory: Bool
     }
+
+    private enum Field { case address, user, password, domain }
 }
 
 struct SMBPlayerView: View {

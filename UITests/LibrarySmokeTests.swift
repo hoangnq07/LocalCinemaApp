@@ -68,11 +68,14 @@ final class LibrarySmokeTests: XCTestCase {
         password.typeText("cinema-test")
         app.buttons["Kết nối"].tap()
 
-        let folder = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "Danh mục")).firstMatch
-        XCTAssertTrue(folder.waitForExistence(timeout: 20), app.debugDescription)
+        let hittable = NSPredicate(format: "exists == true AND hittable == true")
+        let folder = app.buttons["smb-entry-Danh mục"]
+        expectation(for: hittable, evaluatedWith: folder)
+        waitForExpectations(timeout: 20)
         folder.tap()
-        let video = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "surround.mkv")).firstMatch
-        XCTAssertTrue(video.waitForExistence(timeout: 10), app.debugDescription)
+        let video = app.buttons["smb-entry-surround.mkv"]
+        expectation(for: hittable, evaluatedWith: video)
+        waitForExpectations(timeout: 15)
         attachScreenshot("SMB folder")
         video.tap()
 
