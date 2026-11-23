@@ -24,7 +24,7 @@ final class LibrarySmokeTests: XCTestCase {
         let card = app.buttons["media-item-MKV Smoke"]
         XCTAssertTrue(card.waitForExistence(timeout: 12))
         card.tap()
-        let play = app.buttons["Phát phim"]
+        let play = app.buttons["movie-details-play"]
         XCTAssertTrue(play.waitForExistence(timeout: 12))
         play.tap()
 
@@ -80,8 +80,14 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertTrue(videoSize.waitForExistence(timeout: 25), app.debugDescription)
         XCTAssertTrue(app.buttons["Âm thanh"].exists)
         attachScreenshot("SMB MKV playback")
-        app.buttons["Tiến 10 giây"].tap()
-        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "0:(1[01]|12) / 0:12"))
-            .firstMatch.waitForExistence(timeout: 8), app.debugDescription)
+        let advanced = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "0:(0[4-9]|1[0-2]) / 0:12"))
+            .firstMatch
+        XCTAssertTrue(advanced.waitForExistence(timeout: 12), app.debugDescription)
+        let pause = app.buttons["Tạm dừng"]
+        if pause.exists { pause.tap() }
+        app.buttons["Lùi 10 giây"].tap()
+        let rewound = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "0:0[0-3] / 0:12"))
+            .firstMatch
+        XCTAssertTrue(rewound.waitForExistence(timeout: 8), app.debugDescription)
     }
 }

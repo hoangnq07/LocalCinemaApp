@@ -137,6 +137,7 @@ struct MovieDetails: View {
                                 .frame(maxWidth: .infinity, minHeight: 46)
                         }
                         .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("movie-details-play")
                         .tint(CinemaStyle.accent)
                         .foregroundStyle(CinemaStyle.background)
 
