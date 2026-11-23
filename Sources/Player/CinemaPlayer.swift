@@ -415,7 +415,7 @@ struct CinemaPlayer: View {
                     toggleOrientation()
                 }
                 .accessibilityIdentifier("player-rotate-toggle")
-                .accessibilityValue("\(status.stats.osdWidth)x\(status.stats.osdHeight)")
+                .accessibilityValue(Text(verbatim: "\(status.stats.osdWidth)x\(status.stats.osdHeight)"))
             }
         }
     }
@@ -704,7 +704,7 @@ struct CinemaPlayer: View {
                     Text("Stats for Nerds · libmpv + MoltenVK")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.white)
-                    Text("Video: \(status.stats.videoCodec) · \(status.videoSize ?? "—") · Render \(status.stats.osdWidth)×\(status.stats.osdHeight) · \(String(format: "%.2f", status.stats.fps)) fps (est \(String(format: "%.1f", status.stats.estimatedFPS)))")
+                    Text("Video: \(status.stats.videoCodec) · \(status.videoSize ?? "—") · Render \(String(status.stats.osdWidth))×\(String(status.stats.osdHeight)) · \(String(format: "%.2f", status.stats.fps)) fps (est \(String(format: "%.1f", status.stats.estimatedFPS)))")
                     Text("Màu: \(status.stats.colorPrimaries) / \(status.stats.gamma) · Peak \(String(format: "%.2f", status.stats.sigPeak)) · EDR \(String(format: "%.1f×", status.stats.edrHeadroom))")
                     Text("AI/Scaler: \(status.stats.activePassesSummary) · Nội suy: \(status.interpolationActive ? interpolation.shortLabel : "Tắt")")
                     Text("Bộ đệm: \(String(format: "%.1f MB", status.stats.cacheMB)) (\(String(format: "%.1fs", status.stats.cacheAheadSec))) · Drop: \(status.stats.droppedFrames)")

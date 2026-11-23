@@ -256,7 +256,9 @@ final class LibrarySmokeTests: XCTestCase {
 
     private func parseDimensions(_ value: Any?) -> (Int, Int)? {
         guard let str = value as? String else { return nil }
-        let parts = str.split(separator: "x").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        let parts = str.split(separator: "x").compactMap { part in
+            Int(String(part.filter { $0 >= "0" && $0 <= "9" }))
+        }
         guard parts.count == 2 else { return nil }
         return (parts[0], parts[1])
     }
