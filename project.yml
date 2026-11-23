@@ -21,6 +21,7 @@ targets:
         product: MPVKit
       - package: AMSMB2
         product: AMSMB2
+        embed: true
     info:
       path: Info.plist
       properties:

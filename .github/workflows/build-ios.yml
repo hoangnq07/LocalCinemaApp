@@ -40,6 +40,7 @@ jobs:
         run: |
           mkdir -p Payload
           ditto build/Build/Products/Release-iphoneos/LocalCinema.app Payload/LocalCinema.app
+          test -f Payload/LocalCinema.app/Frameworks/AMSMB2.framework/AMSMB2
           zip -qr LocalCinema-unsigned.ipa Payload
           unzip -tq LocalCinema-unsigned.ipa
 
