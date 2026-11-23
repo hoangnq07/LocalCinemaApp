@@ -68,11 +68,15 @@ final class LibrarySmokeTests: XCTestCase {
         password.typeText("cinema-test")
         app.buttons["Kết nối"].tap()
 
+        let passwordOffer = app.sheets["Save Password?"].buttons["Not Now"]
+        if passwordOffer.waitForExistence(timeout: 5) { passwordOffer.tap() }
+
         let hittable = NSPredicate(format: "exists == true AND hittable == true")
         let folder = app.buttons["smb-entry-Danh mục"]
         expectation(for: hittable, evaluatedWith: folder)
         waitForExpectations(timeout: 20)
         folder.tap()
+        if passwordOffer.exists { passwordOffer.tap() }
         let video = app.buttons["smb-entry-surround.mkv"]
         expectation(for: hittable, evaluatedWith: video)
         waitForExpectations(timeout: 15)
