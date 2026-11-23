@@ -145,8 +145,8 @@ struct CinemaPlayer: View {
         }
         .statusBarHidden(!controls)
         .persistentSystemOverlays(controls ? .automatic : .hidden)
-        .onAppear {
-            scheduleAutoHide()
+        .onChange(of: status.ready) { ready in
+            if ready { scheduleAutoHide() }
         }
         .onChange(of: status.time) { position in
             if abs(position - lastSaved) >= 15 { persist() }

@@ -117,18 +117,18 @@ final class LibrarySmokeTests: XCTestCase {
         password.typeText("cinema-test")
         app.buttons["Kết nối"].tap()
 
-        let passwordOffer = app.sheets["Save Password?"].buttons["Not Now"]
-        if passwordOffer.waitForExistence(timeout: 2) { passwordOffer.tap() }
-
-        let hittable = NSPredicate(format: "exists == true AND hittable == true")
         let folder = app.buttons["smb-entry-Danh mục"]
-        expectation(for: hittable, evaluatedWith: folder)
-        waitForExpectations(timeout: 20)
+        XCTAssertTrue(
+            waitUntilHittable(folder, dismissingPasswordPromptIn: app, timeout: 25),
+            app.debugDescription
+        )
         folder.tap()
-        if passwordOffer.exists { passwordOffer.tap() }
+
         let video = app.buttons["smb-entry-surround.mkv"]
-        expectation(for: hittable, evaluatedWith: video)
-        waitForExpectations(timeout: 15)
+        XCTAssertTrue(
+            waitUntilHittable(video, dismissingPasswordPromptIn: app, timeout: 20),
+            app.debugDescription
+        )
         attachScreenshot("SMB Folder")
         video.tap()
 
@@ -159,6 +159,27 @@ final class LibrarySmokeTests: XCTestCase {
         }
         expectation(for: rewound, evaluatedWith: timeReadout)
         waitForExpectations(timeout: 8)
+    }
+
+    private func waitUntilHittable(
+        _ element: XCUIElement,
+        dismissingPasswordPromptIn app: XCUIApplication,
+        timeout: TimeInterval
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let notNow = app.buttons["Not Now"]
+            if notNow.exists && notNow.isHittable {
+                notNow.tap()
+                RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+                continue
+            }
+            if element.exists && element.isHittable {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.35))
+        }
+        return element.exists && element.isHittable
     }
 
     private func parsePlaybackSeconds(_ label: String) -> Int? {
