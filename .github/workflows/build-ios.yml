@@ -1,0 +1,51 @@
+name: Build Unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build unsigned app for iPhone
+        run: |
+          xcodebuild \
+            -project LocalCinema.xcodeproj \
+            -scheme LocalCinema \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            build
+
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          ditto build/Build/Products/Release-iphoneos/LocalCinema.app Payload/LocalCinema.app
+          zip -qr LocalCinema-unsigned.ipa Payload
+          unzip -tq LocalCinema-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: LocalCinema-unsigned-ipa
+          path: LocalCinema-unsigned.ipa
+          if-no-files-found: error

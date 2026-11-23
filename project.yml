@@ -1,0 +1,33 @@
+name: LocalCinema
+options:
+  bundleIdPrefix: com.local
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  LocalCinema:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Local Cinema
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: "Kết nối tới máy chủ phim nội bộ trong mạng LAN"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.local.cinema
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "1.0.0"
+schemes:
+  LocalCinema:
+    build:
+      targets:
+        LocalCinema: all
