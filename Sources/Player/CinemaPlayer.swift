@@ -77,39 +77,41 @@ struct CinemaPlayer: View {
     private var status: PlaybackStatus { player.status }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                Color.black.ignoresSafeArea()
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-                MPVSurface(onResize: { newSize in
-                    player.handleSurfaceResize(newSize)
-                }) { layer, edrAvailable, maxFPS in
-                    guard !closing else { return }
-                    let config = PlaybackConfiguration(
-                        startTime: item.progress < 0.95 ? item.position : 0,
-                        upscaler: upscaler,
-                        hdrMode: hdrMode,
-                        sdrToHDR: sdrToHDR,
-                        interpolation: interpolation,
-                        interpolationFPS: interpolationFPS,
-                        deband: deband,
-                        audioOutput: audioOutput,
-                        hwdec: hwdecEnabled,
-                        httpHeaders: httpHeaders,
-                        externalSubtitles: externalSubtitles
-                    )
-                    player.open(
-                        url,
-                        title: item.displayTitle,
-                        source: smbSource,
-                        surface: layer,
-                        edrAvailable: edrAvailable,
-                        screenMaxFPS: maxFPS,
-                        config: config
-                    )
-                }
-                .ignoresSafeArea()
-                .accessibilityHidden(true)
+            MPVSurface(onResize: { newLayer, newSize, cleanupOld in
+                player.handleSurfaceResize(newLayer: newLayer, drawableSize: newSize, cleanupOldLayer: cleanupOld)
+            }) { layer, edrAvailable, maxFPS in
+                guard !closing else { return }
+                let config = PlaybackConfiguration(
+                    startTime: item.progress < 0.95 ? item.position : 0,
+                    upscaler: upscaler,
+                    hdrMode: hdrMode,
+                    sdrToHDR: sdrToHDR,
+                    interpolation: interpolation,
+                    interpolationFPS: interpolationFPS,
+                    deband: deband,
+                    audioOutput: audioOutput,
+                    hwdec: hwdecEnabled,
+                    httpHeaders: httpHeaders,
+                    externalSubtitles: externalSubtitles
+                )
+                player.open(
+                    url,
+                    title: item.displayTitle,
+                    source: smbSource,
+                    surface: layer,
+                    edrAvailable: edrAvailable,
+                    screenMaxFPS: maxFPS,
+                    config: config
+                )
+            }
+            .ignoresSafeArea()
+            .accessibilityHidden(true)
+
+            GeometryReader { geometry in
+                ZStack {
 
                 gestureStage(size: geometry.size)
 
@@ -143,9 +145,13 @@ struct CinemaPlayer: View {
                 if let activeDrawer, !locked {
                     drawerOverlay(tab: activeDrawer, size: geometry.size)
                 }
-            }
-            .onChange(of: geometry.size) { newSize in
-                isLandscape = newSize.width > newSize.height
+                }
+                .onAppear {
+                    isLandscape = geometry.size.width > geometry.size.height
+                }
+                .onChange(of: geometry.size) { newSize in
+                    isLandscape = newSize.width > geometry.size.height
+                }
             }
         }
         .statusBarHidden(!controls)
@@ -409,6 +415,7 @@ struct CinemaPlayer: View {
                     toggleOrientation()
                 }
                 .accessibilityIdentifier("player-rotate-toggle")
+                .accessibilityValue("\(status.stats.osdWidth)x\(status.stats.osdHeight)")
             }
         }
     }
@@ -697,7 +704,7 @@ struct CinemaPlayer: View {
                     Text("Stats for Nerds · libmpv + MoltenVK")
                         .font(.caption2.weight(.bold))
                         .foregroundStyle(.white)
-                    Text("Video: \(status.stats.videoCodec) · \(status.videoSize ?? "—") · \(String(format: "%.2f", status.stats.fps)) fps (est \(String(format: "%.1f", status.stats.estimatedFPS)))")
+                    Text("Video: \(status.stats.videoCodec) · \(status.videoSize ?? "—") · Render \(status.stats.osdWidth)×\(status.stats.osdHeight) · \(String(format: "%.2f", status.stats.fps)) fps (est \(String(format: "%.1f", status.stats.estimatedFPS)))")
                     Text("Màu: \(status.stats.colorPrimaries) / \(status.stats.gamma) · Peak \(String(format: "%.2f", status.stats.sigPeak)) · EDR \(String(format: "%.1f×", status.stats.edrHeadroom))")
                     Text("AI/Scaler: \(status.stats.activePassesSummary) · Nội suy: \(status.interpolationActive ? interpolation.shortLabel : "Tắt")")
                     Text("Bộ đệm: \(String(format: "%.1f MB", status.stats.cacheMB)) (\(String(format: "%.1fs", status.stats.cacheAheadSec))) · Drop: \(status.stats.droppedFrames)")

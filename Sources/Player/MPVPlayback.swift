@@ -30,6 +30,8 @@ struct PlaybackStats: Equatable {
     var edrHeadroom = 1.0
     var cacheMB = 0.0
     var cacheAheadSec = 0.0
+    var osdWidth = 0
+    var osdHeight = 0
     var activePassesSummary = "Bilinear"
 }
 
@@ -106,8 +108,54 @@ final class MPVPlayback: ObservableObject {
     private var pendingExternalSubtitles: [URL] = []
     private var currentTitle = ""
     private var remoteTargetsConfigured = false
+    private var isClosed = false
     private var isReconfiguringSurface = false
     private var lastConfiguredSize: CGSize = .zero
+    private var openedURL: URL?
+    private var openedSource: SMBReadSource?
+    private var allExternalSubtitles: [URL] = []
+    private var pendingSeekOnLoad: Double?
+    private var pendingRestoreAid: Int?
+    private var pendingRestoreSid: Int?
+    private var pendingRestoreSecondarySid: Int?
+    private var pendingRestorePaused: Bool?
+    private var pendingResize: (layer: CAMetalLayer, size: CGSize, cleanupOld: () -> Void)?
+    private var inFlightStageACleanup: (() -> Void)?
+
+    private var currentDeband = false
+    private var currentAudioOutput: AudioOutput = .automatic
+    private var currentSpeed = 1.0
+    private var currentVolume = 100.0
+    private var currentAudioDelay = 0.0
+    private var currentNightMode = false
+    private var currentAspectMode: AspectMode = .fit
+    private var currentZoom = 0.0
+    private var currentBrightness = 0.0
+    private var currentContrast = 0.0
+    private var currentSaturation = 0.0
+    private var currentGamma = 0.0
+    private var currentSharpen = 0.0
+    private var currentSubScale = 1.0
+    private var currentSubPos = 92
+    private var currentSubColor: SubtitleColorOption = .white
+    private var currentSubBorder = 2.0
+    private var currentSubBgOpacity = 0.0
+    private var currentSubOffset = 0.0
+    private var currentABLoopA: Double?
+    private var currentABLoopB: Double?
+
+    static func dimensionsMatch(osdWidth: Int, osdHeight: Int, target: CGSize) -> Bool {
+        guard osdWidth > 0, osdHeight > 0, target.width > 1, target.height > 1 else { return false }
+        let targetIsLandscape = target.width > target.height
+        let osdIsLandscape = osdWidth > osdHeight
+        if abs(target.width - target.height) > 20 && targetIsLandscape != osdIsLandscape {
+            return false
+        }
+        let tolW = max(32.0, target.width * 0.15)
+        let tolH = max(32.0, target.height * 0.15)
+        return abs(Double(osdWidth) - target.width) <= tolW
+            && abs(Double(osdHeight) - target.height) <= tolH
+    }
 
     deinit {
         if let thermalObserver {
@@ -131,89 +179,29 @@ final class MPVPlayback: ObservableObject {
 
         work.async {
             guard self.handle == nil else { return }
-            self.lastConfiguredSize = initialDrawableSize
-            guard let client = mpv_create() else {
-                self.fail("Không thể khởi tạo trình phát.")
-                return
-            }
-            self.handle = client
-            self.surface = surface
+            self.isClosed = false
+            self.openedURL = url
+            self.openedSource = source
             self.initialConfig = config
             self.edrAvailable = edrAvailable
             self.screenMaxFPS = max(60, screenMaxFPS)
+            self.allExternalSubtitles = config.externalSubtitles
             self.pendingExternalSubtitles = config.externalSubtitles
-            self.progress.edrAvailable = edrAvailable
-            self.progress.stats.edrHeadroom = edrAvailable ? 2.0 : 1.0
-
-            var surfaceAddress = Int64(bitPattern: UInt64(UInt(bitPattern: Unmanaged.passUnretained(surface).toOpaque())))
-            let output = mpv_set_option(client, "wid", MPV_FORMAT_INT64, &surfaceAddress)
-            if output < 0 {
-                self.fail("Không thể khởi tạo lớp hiển thị video.", code: output)
-                self.finish()
-                return
-            }
-
-            let requiredOptions: [String: String] = [
-                "config": "no",
-                "load-scripts": "no",
-                "load-unsafe-playlists": "no",
-                "terminal": "no",
-                "input-default-bindings": "no",
-                "vo": "gpu-next",
-                "gpu-api": "vulkan",
-                "gpu-context": "moltenvk",
-                "hwdec": config.hwdec ? "videotoolbox" : "no",
-                "ao": "audiounit",
-                "keep-open": "yes",
-                "sub-auto": "no",
-                "audio-file-auto": "no"
-            ]
-            for (key, value) in requiredOptions {
-                let result = mpv_set_option_string(client, key, value)
-                if result < 0 {
-                    self.fail("Không thể cấu hình trình phát (\(key)).", code: result)
-                    self.finish()
-                    return
-                }
-            }
-
-            self.setOption("audio-channels", config.audioOutput.option)
-            self.setOption("volume-max", "200")
-            self.setOption("demuxer-max-bytes", "67108864")
-            self.setOption("demuxer-readahead-secs", "20")
-            self.setOption("deband", config.deband ? "yes" : "no")
-            self.setOption("sub-scale-by-window", "yes")
-            self.setOption("sub-outline-size", "2")
-            self.setOption("secondary-sub-pos", "8")
-
-            if !config.httpHeaders.isEmpty {
-                let headerString = config.httpHeaders.map { "\($0.key): \($0.value)" }.joined(separator: ",")
-                self.setOption("http-header-fields", headerString)
-            }
-
-            let initResult = mpv_initialize(client)
-            if initResult < 0 {
-                self.fail("Không thể khởi tạo trình phát.", code: initResult)
-                self.finish()
-                return
-            }
-
-            if let source {
-                self.smbSource = source
-                let status = source.register(on: client)
-                guard status >= 0 else {
-                    self.fail("Không thể khởi tạo luồng SMB.", code: status)
-                    self.finish()
-                    return
-                }
-            }
+            self.pendingSeekOnLoad = config.startTime > 0 ? config.startTime : nil
+            self.pendingRestoreAid = nil
+            self.pendingRestoreSid = nil
+            self.pendingRestoreSecondarySid = nil
+            self.pendingRestorePaused = nil
 
             self.currentUpscaler = config.upscaler
             self.currentHDRMode = config.hdrMode
             self.currentSDRToHDR = config.sdrToHDR
             self.currentInterpolation = config.interpolation
             self.currentInterpolationFPS = config.interpolationFPS
+            self.currentDeband = config.deband
+            self.currentAudioOutput = config.audioOutput
             self.currentThermalState = ProcessInfo.processInfo.thermalState
+
             if self.thermalObserver == nil {
                 self.thermalObserver = NotificationCenter.default.addObserver(
                     forName: ProcessInfo.thermalStateDidChangeNotification,
@@ -223,62 +211,275 @@ final class MPVPlayback: ObservableObject {
                     self?.work.async { self?.handleThermalStateChange() }
                 }
             }
-            self.reconcileEnhancements(force: true)
 
-            let path = source?.uri ?? (url.isFileURL ? url.path : url.absoluteString)
-            self.command("loadfile", path, "replace")
+            self.progress.edrAvailable = edrAvailable
+            self.progress.stats.edrHeadroom = edrAvailable ? 2.0 : 1.0
 
-            let timer = DispatchSource.makeTimerSource(queue: self.work)
-            timer.schedule(deadline: .now(), repeating: .milliseconds(160), leeway: .milliseconds(30))
-            timer.setEventHandler { [weak self] in self?.poll() }
-            self.timer = timer
-            timer.resume()
+            self.startEngine(
+                url: url,
+                source: source,
+                surface: surface,
+                drawableSize: initialDrawableSize,
+                config: config,
+                startPaused: false
+            )
         }
+    }
+
+    private func startEngine(
+        url: URL,
+        source: SMBReadSource?,
+        surface: CAMetalLayer,
+        drawableSize: CGSize,
+        config: PlaybackConfiguration,
+        startPaused: Bool
+    ) {
+        lastConfiguredSize = drawableSize
+        guard let client = mpv_create() else {
+            fail("Không thể khởi tạo trình phát.")
+            return
+        }
+        handle = client
+        self.surface = surface
+
+        var surfaceAddress = Int64(bitPattern: UInt64(UInt(bitPattern: Unmanaged.passUnretained(surface).toOpaque())))
+        let output = mpv_set_option(client, "wid", MPV_FORMAT_INT64, &surfaceAddress)
+        if output < 0 {
+            fail("Không thể khởi tạo lớp hiển thị video.", code: output)
+            finish()
+            return
+        }
+
+        let requiredOptions: [String: String] = [
+            "config": "no",
+            "load-scripts": "no",
+            "load-unsafe-playlists": "no",
+            "terminal": "no",
+            "input-default-bindings": "no",
+            "vo": "gpu-next",
+            "gpu-api": "vulkan",
+            "gpu-context": "moltenvk",
+            "hwdec": config.hwdec ? "videotoolbox" : "no",
+            "ao": "audiounit",
+            "keep-open": "yes",
+            "sub-auto": "no",
+            "audio-file-auto": "no"
+        ]
+        for (key, value) in requiredOptions {
+            let result = mpv_set_option_string(client, key, value)
+            if result < 0 {
+                fail("Không thể cấu hình trình phát (\(key)).", code: result)
+                finish()
+                return
+            }
+        }
+
+        setOption("audio-channels", currentAudioOutput.option)
+        setOption("volume-max", "200")
+        setOption("demuxer-max-bytes", "67108864")
+        setOption("demuxer-readahead-secs", "20")
+        setOption("deband", currentDeband ? "yes" : "no")
+        setOption("sub-scale-by-window", "yes")
+        setOption("sub-outline-size", "2")
+        setOption("secondary-sub-pos", "8")
+        if startPaused {
+            setOption("pause", "yes")
+        }
+
+        if !config.httpHeaders.isEmpty {
+            let headerString = config.httpHeaders.map { "\($0.key): \($0.value)" }.joined(separator: ",")
+            setOption("http-header-fields", headerString)
+        }
+
+        let initResult = mpv_initialize(client)
+        if initResult < 0 {
+            fail("Không thể khởi tạo trình phát.", code: initResult)
+            finish()
+            return
+        }
+
+        if let source {
+            smbSource = source
+            let status = source.register(on: client)
+            guard status >= 0 else {
+                fail("Không thể khởi tạo luồng SMB.", code: status)
+                finish()
+                return
+            }
+        }
+
+        reconcileEnhancements(force: true)
+        applyAllRuntimeSettings()
+
+        let path = source?.uri ?? (url.isFileURL ? url.path : url.absoluteString)
+        command("loadfile", path, "replace")
+
+        let timer = DispatchSource.makeTimerSource(queue: work)
+        timer.schedule(deadline: .now(), repeating: .milliseconds(160), leeway: .milliseconds(30))
+        timer.setEventHandler { [weak self] in self?.poll() }
+        self.timer = timer
+        timer.resume()
     }
 
     func close() {
         clearNowPlaying()
-        work.async { self.finish() }
+        work.async {
+            self.isClosed = true
+            self.finish()
+        }
     }
 
-    /// Forces libmpv's `gpu-next` + `moltenvk` driver to tear down and recreate its Vulkan swapchain
-    /// against the updated `CAMetalLayer.drawableSize` after orientation/container changes.
-    func handleSurfaceResize(_ drawableSize: CGSize) {
+    /// Rebinds libmpv's `gpu-next` + `moltenvk` output onto a fresh `CAMetalLayer` sized for the new
+    /// orientation, verifying live `osd-dimensions` and transparently reopening the session at the
+    /// current position if MoltenVK retains the stale portrait swapchain.
+    func handleSurfaceResize(newLayer: CAMetalLayer, drawableSize: CGSize, cleanupOldLayer: @escaping () -> Void) {
         work.async {
-            guard self.handle != nil,
+            guard !self.isClosed,
+                  let handle = self.handle,
                   self.progress.ready,
                   self.progress.error == nil,
-                  !self.isReconfiguringSurface,
                   drawableSize.width > 1,
                   drawableSize.height > 1 else {
+                self.runCleanup(cleanupOldLayer)
+                return
+            }
+            if self.isReconfiguringSurface {
+                self.runCleanup(self.pendingResize?.cleanupOld)
+                self.pendingResize = (newLayer, drawableSize, cleanupOldLayer)
                 return
             }
             guard abs(drawableSize.width - self.lastConfiguredSize.width) > 2
                 || abs(drawableSize.height - self.lastConfiguredSize.height) > 2 else {
+                self.runCleanup(cleanupOldLayer)
                 return
             }
-            self.lastConfiguredSize = drawableSize
-            self.isReconfiguringSurface = true
-            self.setOptional("vo", "null")
 
-            let layer = self.surface
-            DispatchQueue.main.async {
-                if let layer {
-                    CATransaction.begin()
-                    CATransaction.setDisableActions(true)
-                    layer.contentsGravity = .resizeAspect
-                    layer.drawableSize = drawableSize
-                    CATransaction.commit()
-                }
-                self.work.async { [weak self] in
+            self.isReconfiguringSurface = true
+            self.lastConfiguredSize = drawableSize
+            self.surface = newLayer
+
+            var newAddr = Int64(bitPattern: UInt64(UInt(bitPattern: Unmanaged.passUnretained(newLayer).toOpaque())))
+            let widStatus = mpv_set_property(handle, "wid", MPV_FORMAT_INT64, &newAddr)
+            if widStatus >= 0 {
+                self.reconcileEnhancements(force: true)
+                self.applyAllRuntimeSettings()
+                self.inFlightStageACleanup = cleanupOldLayer
+                self.work.asyncAfter(deadline: .now() + 0.30) { [weak self] in
                     guard let self else { return }
-                    defer { self.isReconfiguringSurface = false }
-                    guard self.handle != nil else { return }
-                    self.setOptional("vo", "gpu-next")
-                    self.reconcileEnhancements(force: true)
+                    let activeCleanup = self.inFlightStageACleanup
+                    self.inFlightStageACleanup = nil
+                    guard !self.isClosed, self.handle != nil else {
+                        self.runCleanup(activeCleanup)
+                        self.finishSurfaceReconfiguration()
+                        return
+                    }
+                    let osdW = Int(self.integer("osd-dimensions/w"))
+                    let osdH = Int(self.integer("osd-dimensions/h"))
+                    if Self.dimensionsMatch(osdWidth: osdW, osdHeight: osdH, target: drawableSize) {
+                        self.progress.stats.osdWidth = osdW
+                        self.progress.stats.osdHeight = osdH
+                        self.publish()
+                        self.runCleanup(activeCleanup)
+                        self.finishSurfaceReconfiguration()
+                    } else {
+                        self.reopenOnSurface(
+                            newLayer,
+                            drawableSize: drawableSize,
+                            cleanupOldLayer: activeCleanup ?? cleanupOldLayer
+                        )
+                    }
                 }
+            } else {
+                self.reopenOnSurface(newLayer, drawableSize: drawableSize, cleanupOldLayer: cleanupOldLayer)
             }
         }
+    }
+
+    private func reopenOnSurface(
+        _ newLayer: CAMetalLayer,
+        drawableSize: CGSize,
+        cleanupOldLayer: @escaping () -> Void
+    ) {
+        guard !isClosed, let url = openedURL else {
+            runCleanup(cleanupOldLayer)
+            finishSurfaceReconfiguration()
+            return
+        }
+
+        let liveTime = double("time-pos")
+        let dur = max(double("duration"), progress.duration)
+        let eof = flag("eof-reached")
+        let resumeTime: Double
+        if eof && dur > 1.5 {
+            resumeTime = max(0, dur - 1.5)
+        } else if dur > 1.5 {
+            resumeTime = min(max(0, liveTime), dur - 0.5)
+        } else {
+            resumeTime = max(0, liveTime)
+        }
+        let wasPaused = flag("pause") && !eof
+
+        pendingRestoreAid = Int(string("aid") ?? "")
+        let sidStr = string("sid")
+        if sidStr == "no" || sidStr == nil {
+            pendingRestoreSid = 0
+        } else if let sidInt = Int(sidStr ?? ""), sidInt > 0 {
+            pendingRestoreSid = sidInt
+        } else {
+            pendingRestoreSid = nil
+        }
+        if let secInt = Int(string("secondary-sid") ?? ""), secInt > 0 {
+            pendingRestoreSecondarySid = secInt
+        } else {
+            pendingRestoreSecondarySid = nil
+        }
+        pendingRestorePaused = wasPaused ? true : nil
+        pendingSeekOnLoad = resumeTime > 0 ? resumeTime : nil
+
+        timer?.cancel()
+        timer = nil
+        appliedUpscaler = nil
+        appliedHDRMode = nil
+        appliedSDRToHDR = nil
+        appliedInterpolation = nil
+        appliedInterpolationFPS = nil
+        if let oldHandle = handle {
+            mpv_terminate_destroy(oldHandle)
+        }
+        handle = nil
+
+        runCleanup(cleanupOldLayer)
+
+        pendingExternalSubtitles = allExternalSubtitles
+        nextTrackRead = Date.distantPast
+
+        startEngine(
+            url: url,
+            source: openedSource,
+            surface: newLayer,
+            drawableSize: drawableSize,
+            config: initialConfig,
+            startPaused: wasPaused
+        )
+        finishSurfaceReconfiguration()
+    }
+
+    private func finishSurfaceReconfiguration() {
+        isReconfiguringSurface = false
+        guard !isClosed, let next = pendingResize else {
+            if let stale = pendingResize {
+                pendingResize = nil
+                runCleanup(stale.cleanupOld)
+            }
+            return
+        }
+        pendingResize = nil
+        handleSurfaceResize(newLayer: next.layer, drawableSize: next.size, cleanupOldLayer: next.cleanupOld)
+    }
+
+    private func runCleanup(_ cleanup: (() -> Void)?) {
+        guard let cleanup else { return }
+        DispatchQueue.main.async(execute: cleanup)
     }
 
     func togglePause() {
@@ -363,69 +564,63 @@ final class MPVPlayback: ObservableObject {
     }
 
     func setDeband(_ enabled: Bool) {
-        work.async { self.setOptional("deband", enabled ? "yes" : "no") }
+        work.async {
+            self.currentDeband = enabled
+            self.setOptional("deband", enabled ? "yes" : "no")
+        }
     }
 
     func setAspectMode(_ mode: AspectMode) {
         work.async {
-            switch mode {
-            case .fit:
-                self.setOptional("keepaspect", "yes")
-                self.setOptional("panscan", "0")
-                self.setOptional("video-aspect-override", "-1")
-            case .fill:
-                self.setOptional("keepaspect", "yes")
-                self.setOptional("panscan", "1")
-                self.setOptional("video-aspect-override", "-1")
-            case .stretch:
-                self.setOptional("keepaspect", "no")
-                self.setOptional("panscan", "0")
-                self.setOptional("video-aspect-override", "-1")
-            case .ratio16x9:
-                self.setOptional("keepaspect", "yes")
-                self.setOptional("panscan", "0")
-                self.setOptional("video-aspect-override", "16:9")
-            case .ratio21x9:
-                self.setOptional("keepaspect", "yes")
-                self.setOptional("panscan", "0")
-                self.setOptional("video-aspect-override", "21:9")
-            case .ratio4x3:
-                self.setOptional("keepaspect", "yes")
-                self.setOptional("panscan", "0")
-                self.setOptional("video-aspect-override", "4:3")
-            }
+            self.currentAspectMode = mode
+            self.applyAspectMode(mode)
         }
     }
 
     func setZoom(_ zoom: Double) {
-        work.async { self.setOptional("video-zoom", String(format: "%.2f", min(max(zoom, -0.5), 1.5))) }
+        work.async {
+            self.currentZoom = zoom
+            self.setOptional("video-zoom", String(format: "%.2f", min(max(zoom, -0.5), 1.5)))
+        }
     }
 
     func setColorAdjustments(brightness: Double, contrast: Double, saturation: Double, gamma: Double, sharpen: Double) {
         work.async {
-            self.setOptional("brightness", String(Int(brightness)))
-            self.setOptional("contrast", String(Int(contrast)))
-            self.setOptional("saturation", String(Int(saturation)))
-            self.setOptional("gamma", String(Int(gamma)))
-            self.setOptional("sharpen", String(format: "%.2f", sharpen))
+            self.currentBrightness = brightness
+            self.currentContrast = contrast
+            self.currentSaturation = saturation
+            self.currentGamma = gamma
+            self.currentSharpen = sharpen
+            self.applyColorAdjustments()
         }
     }
 
     // MARK: - Audio & Subtitles & Utilities
 
     func selectAudio(_ id: Int) { work.async { self.setOptional("aid", String(id)) } }
-    func setOutput(_ audio: AudioOutput) { work.async { self.setOptional("audio-channels", audio.option) } }
-    func setVolume(_ percent: Double) { work.async { self.setOptional("volume", String(Int(min(max(percent, 0), 200)))) } }
-    func setAudioDelay(_ seconds: Double) { work.async { self.setOptional("audio-delay", String(format: "%.2f", seconds)) } }
+    func setOutput(_ audio: AudioOutput) {
+        work.async {
+            self.currentAudioOutput = audio
+            self.setOptional("audio-channels", audio.option)
+        }
+    }
+    func setVolume(_ percent: Double) {
+        work.async {
+            self.currentVolume = percent
+            self.setOptional("volume", String(Int(min(max(percent, 0), 200))))
+        }
+    }
+    func setAudioDelay(_ seconds: Double) {
+        work.async {
+            self.currentAudioDelay = seconds
+            self.setOptional("audio-delay", String(format: "%.2f", seconds))
+        }
+    }
 
     func setNightMode(_ enabled: Bool) {
         work.async {
-            self.setOptional("audio-normalize-downmix", enabled ? "yes" : "no")
-            if enabled {
-                self.setOptional("af", "lavfi=[dynaudnorm=f=150:g=15:p=0.9]")
-            } else {
-                self.setOptional("af", "")
-            }
+            self.currentNightMode = enabled
+            self.applyNightMode(enabled)
         }
     }
 
@@ -439,6 +634,9 @@ final class MPVPlayback: ObservableObject {
 
     func addExternalSubtitle(_ url: URL) {
         work.async {
+            if !self.allExternalSubtitles.contains(url) {
+                self.allExternalSubtitles.append(url)
+            }
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             let cleanTitle = Self.cleanSubtitleTitle(from: url)
@@ -459,30 +657,105 @@ final class MPVPlayback: ObservableObject {
     }
 
     func setSubtitleOffset(_ seconds: Double) {
-        work.async { self.setOptional("sub-delay", String(format: "%.2f", seconds)) }
+        work.async {
+            self.currentSubOffset = seconds
+            self.setOptional("sub-delay", String(format: "%.2f", seconds))
+        }
     }
 
     func setSubtitleStyle(scale: Double, pos: Int, color: SubtitleColorOption, borderSize: Double, backgroundOpacity: Double) {
         work.async {
-            self.setOptional("sub-scale", String(format: "%.2f", scale))
-            self.setOptional("sub-pos", String(min(max(pos, 5), 100)))
-            self.setOptional("sub-color", color.mpvColor)
-            self.setOptional("sub-outline-size", String(format: "%.1f", borderSize))
-            let alpha = Int(min(max(backgroundOpacity, 0), 1) * 255)
-            let bgHex = String(format: "#%02X000000", alpha)
-            self.setOptional("sub-back-color", bgHex)
+            self.currentSubScale = scale
+            self.currentSubPos = pos
+            self.currentSubColor = color
+            self.currentSubBorder = borderSize
+            self.currentSubBgOpacity = backgroundOpacity
+            self.applySubtitleStyle()
         }
     }
 
     func setSpeed(_ speed: Double) {
-        work.async { self.setOptional("speed", String(format: "%.2f", speed)) }
+        work.async {
+            self.currentSpeed = speed
+            self.setOptional("speed", String(format: "%.2f", speed))
+        }
     }
 
     func setABLoop(a: Double?, b: Double?) {
         work.async {
+            self.currentABLoopA = a
+            self.currentABLoopB = b
             self.setOptional("ab-loop-a", a.map { String(format: "%.2f", $0) } ?? "no")
             self.setOptional("ab-loop-b", b.map { String(format: "%.2f", $0) } ?? "no")
         }
+    }
+
+    private func applyAspectMode(_ mode: AspectMode) {
+        switch mode {
+        case .fit:
+            setOptional("keepaspect", "yes")
+            setOptional("panscan", "0")
+            setOptional("video-aspect-override", "-1")
+        case .fill:
+            setOptional("keepaspect", "yes")
+            setOptional("panscan", "1")
+            setOptional("video-aspect-override", "-1")
+        case .stretch:
+            setOptional("keepaspect", "no")
+            setOptional("panscan", "0")
+            setOptional("video-aspect-override", "-1")
+        case .ratio16x9:
+            setOptional("keepaspect", "yes")
+            setOptional("panscan", "0")
+            setOptional("video-aspect-override", "16:9")
+        case .ratio21x9:
+            setOptional("keepaspect", "yes")
+            setOptional("panscan", "0")
+            setOptional("video-aspect-override", "21:9")
+        case .ratio4x3:
+            setOptional("keepaspect", "yes")
+            setOptional("panscan", "0")
+            setOptional("video-aspect-override", "4:3")
+        }
+    }
+
+    private func applyColorAdjustments() {
+        setOptional("brightness", String(Int(currentBrightness)))
+        setOptional("contrast", String(Int(currentContrast)))
+        setOptional("saturation", String(Int(currentSaturation)))
+        setOptional("gamma", String(Int(currentGamma)))
+        setOptional("sharpen", String(format: "%.2f", currentSharpen))
+    }
+
+    private func applyNightMode(_ enabled: Bool) {
+        setOptional("audio-normalize-downmix", enabled ? "yes" : "no")
+        setOptional("af", enabled ? "lavfi=[dynaudnorm=f=150:g=15:p=0.9]" : "")
+    }
+
+    private func applySubtitleStyle() {
+        setOptional("sub-scale", String(format: "%.2f", currentSubScale))
+        setOptional("sub-pos", String(min(max(currentSubPos, 5), 100)))
+        setOptional("sub-color", currentSubColor.mpvColor)
+        setOptional("sub-outline-size", String(format: "%.1f", currentSubBorder))
+        let alpha = Int(min(max(currentSubBgOpacity, 0), 1) * 255)
+        let bgHex = String(format: "#%02X000000", alpha)
+        setOptional("sub-back-color", bgHex)
+    }
+
+    private func applyAllRuntimeSettings() {
+        setOptional("deband", currentDeband ? "yes" : "no")
+        applyAspectMode(currentAspectMode)
+        setOptional("video-zoom", String(format: "%.2f", min(max(currentZoom, -0.5), 1.5)))
+        applyColorAdjustments()
+        setOptional("audio-channels", currentAudioOutput.option)
+        setOptional("volume", String(Int(min(max(currentVolume, 0), 200))))
+        setOptional("audio-delay", String(format: "%.2f", currentAudioDelay))
+        applyNightMode(currentNightMode)
+        setOptional("sub-delay", String(format: "%.2f", currentSubOffset))
+        applySubtitleStyle()
+        setOptional("speed", String(format: "%.2f", currentSpeed))
+        setOptional("ab-loop-a", currentABLoopA.map { String(format: "%.2f", $0) } ?? "no")
+        setOptional("ab-loop-b", currentABLoopB.map { String(format: "%.2f", $0) } ?? "no")
     }
 
     func takeSnapshot(completion: @escaping @Sendable (Data?) -> Void) {
@@ -651,16 +924,34 @@ final class MPVPlayback: ObservableObject {
             switch event.event_id {
             case MPV_EVENT_FILE_LOADED:
                 progress.ready = true
-                if initialConfig.startTime > 0 {
-                    command("seek", String(initialConfig.startTime), "absolute+exact")
+                if let seekTarget = pendingSeekOnLoad, seekTarget > 0 {
+                    command("seek", String(format: "%.3f", seekTarget), "absolute+exact")
                 }
+                pendingSeekOnLoad = nil
                 for (index, subURL) in pendingExternalSubtitles.enumerated() {
                     let cleanTitle = Self.cleanSubtitleTitle(from: subURL)
                     command("sub-add", subURL.path, index == 0 ? "select" : "auto", cleanTitle)
                 }
                 pendingExternalSubtitles.removeAll()
+                if let aid = pendingRestoreAid {
+                    setOptional("aid", String(aid))
+                    pendingRestoreAid = nil
+                }
+                if let sid = pendingRestoreSid {
+                    setOptional("sid", sid == 0 ? "no" : String(sid))
+                    pendingRestoreSid = nil
+                }
+                if let secSid = pendingRestoreSecondarySid {
+                    setOptional("secondary-sid", String(secSid))
+                    pendingRestoreSecondarySid = nil
+                }
+                if pendingRestorePaused == true {
+                    setOptional("pause", "yes")
+                }
+                pendingRestorePaused = nil
                 updateTracks()
                 updateChapters()
+                updateEnhancementAndStats()
             case MPV_EVENT_END_FILE:
                 if let end = event.data?.assumingMemoryBound(to: mpv_event_end_file.self).pointee,
                    end.reason == MPV_END_FILE_REASON_ERROR {
@@ -682,6 +973,12 @@ final class MPVPlayback: ObservableObject {
             progress.time = double("time-pos")
             progress.duration = double("duration")
             progress.demuxerCacheDuration = double("demuxer-cache-duration")
+            let liveOsdW = Int(integer("osd-dimensions/w"))
+            let liveOsdH = Int(integer("osd-dimensions/h"))
+            if liveOsdW > 0, liveOsdH > 0 {
+                progress.stats.osdWidth = liveOsdW
+                progress.stats.osdHeight = liveOsdH
+            }
 
             if Date() >= nextTrackRead {
                 updateTracks()
@@ -727,6 +1024,8 @@ final class MPVPlayback: ObservableObject {
         stats.edrHeadroom = edrAvailable ? 2.0 : 1.0
         stats.cacheMB = Double(integer("demuxer-cache-state/fw-bytes")) / (1024.0 * 1024.0)
         stats.cacheAheadSec = progress.demuxerCacheDuration
+        stats.osdWidth = Int(integer("osd-dimensions/w"))
+        stats.osdHeight = Int(integer("osd-dimensions/h"))
         let thermalTag = progress.thermalThrottled ? " · Thermal" : ""
         stats.activePassesSummary = passes.isEmpty
             ? "\(activeUpscaler.shortLabel)\(thermalTag)"
@@ -845,8 +1144,17 @@ final class MPVPlayback: ObservableObject {
         appliedSDRToHDR = nil
         appliedInterpolation = nil
         appliedInterpolationFPS = nil
+        runCleanup(inFlightStageACleanup)
+        inFlightStageACleanup = nil
+        if let pending = pendingResize {
+            pendingResize = nil
+            runCleanup(pending.cleanupOld)
+        }
+        isReconfiguringSurface = false
         if let handle { mpv_terminate_destroy(handle) }
         handle = nil
+        openedURL = nil
+        openedSource = nil
         smbSource = nil
         surface = nil
     }
@@ -961,7 +1269,7 @@ final class MPVPlayback: ObservableObject {
 }
 
 struct MPVSurface: UIViewRepresentable {
-    var onResize: ((CGSize) -> Void)? = nil
+    var onResize: ((CAMetalLayer, CGSize, @escaping () -> Void) -> Void)? = nil
     let attached: (CAMetalLayer, Bool, Int) -> Void
 
     func makeUIView(context: Context) -> RenderView {
@@ -976,43 +1284,105 @@ struct MPVSurface: UIViewRepresentable {
     }
 
     final class RenderView: UIView {
-        override class var layerClass: AnyClass { RenderLayer.self }
         var ready: ((CAMetalLayer, Bool, Int) -> Void)?
-        var onResize: ((CGSize) -> Void)?
+        var onResize: ((CAMetalLayer, CGSize, @escaping () -> Void) -> Void)?
+        private var activeMetalLayer: RenderLayer?
         private var lastDrawableSize: CGSize = .zero
         private var resizeWorkItem: DispatchWorkItem?
 
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            configureView()
+        }
+
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            configureView()
+        }
+
+        deinit {
+            resizeWorkItem?.cancel()
+        }
+
+        private func configureView() {
+            backgroundColor = .black
+            clipsToBounds = true
+        }
+
+        private func makeMetalLayer(bounds: CGRect, scale: CGFloat, drawableSize: CGSize, edr: Bool) -> RenderLayer {
+            let metalLayer = RenderLayer()
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            metalLayer.frame = bounds
+            metalLayer.contentsScale = scale
+            metalLayer.drawableSize = drawableSize
+            metalLayer.framebufferOnly = true
+            metalLayer.backgroundColor = UIColor.black.cgColor
+            metalLayer.contentsGravity = .resizeAspect
+            metalLayer.wantsExtendedDynamicRangeContent = edr
+            CATransaction.commit()
+            return metalLayer
+        }
+
         override func layoutSubviews() {
             super.layoutSubviews()
-            guard let window, let layer = layer as? CAMetalLayer, bounds.width > 1, bounds.height > 1 else { return }
+            guard let window, bounds.width > 1, bounds.height > 1 else { return }
             let screen = window.screen
             let scale = screen.nativeScale
             let targetSize = CGSize(width: floor(bounds.width * scale), height: floor(bounds.height * scale))
 
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer.contentsScale = scale
-            layer.contentsGravity = .resizeAspect
-            layer.drawableSize = targetSize
-            CATransaction.commit()
-
             if let ready {
                 self.ready = nil
                 self.lastDrawableSize = targetSize
-                layer.framebufferOnly = true
+                let metalLayer = makeMetalLayer(bounds: bounds, scale: scale, drawableSize: targetSize, edr: false)
+                layer.addSublayer(metalLayer)
+                activeMetalLayer = metalLayer
                 let edrAvailable = screen.potentialEDRHeadroom > 1.05
                 let maxFPS = screen.maximumFramesPerSecond
-                DispatchQueue.main.async { ready(layer, edrAvailable, maxFPS) }
-            } else if abs(targetSize.width - lastDrawableSize.width) > 2
-                || abs(targetSize.height - lastDrawableSize.height) > 2 {
-                lastDrawableSize = targetSize
-                resizeWorkItem?.cancel()
-                let workItem = DispatchWorkItem { [weak self] in
-                    self?.onResize?(targetSize)
-                }
-                resizeWorkItem = workItem
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: workItem)
+                DispatchQueue.main.async { ready(metalLayer, edrAvailable, maxFPS) }
+                return
             }
+
+            if let activeMetalLayer {
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                activeMetalLayer.frame = bounds
+                CATransaction.commit()
+            }
+
+            guard abs(targetSize.width - lastDrawableSize.width) > 2
+                || abs(targetSize.height - lastDrawableSize.height) > 2 else {
+                return
+            }
+
+            resizeWorkItem?.cancel()
+            let workItem = DispatchWorkItem { [weak self] in
+                guard let self, let window = self.window, self.bounds.width > 1, self.bounds.height > 1 else { return }
+                let finalScale = window.screen.nativeScale
+                let finalSize = CGSize(
+                    width: floor(self.bounds.width * finalScale),
+                    height: floor(self.bounds.height * finalScale)
+                )
+                guard abs(finalSize.width - self.lastDrawableSize.width) > 2
+                    || abs(finalSize.height - self.lastDrawableSize.height) > 2 else {
+                    return
+                }
+                self.lastDrawableSize = finalSize
+                let oldLayer = self.activeMetalLayer
+                let newLayer = self.makeMetalLayer(
+                    bounds: self.bounds,
+                    scale: finalScale,
+                    drawableSize: finalSize,
+                    edr: oldLayer?.wantsExtendedDynamicRangeContent ?? false
+                )
+                self.layer.addSublayer(newLayer)
+                self.activeMetalLayer = newLayer
+                self.onResize?(newLayer, finalSize) {
+                    oldLayer?.removeFromSuperlayer()
+                }
+            }
+            resizeWorkItem = workItem
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: workItem)
         }
     }
 

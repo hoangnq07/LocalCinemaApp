@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import XCTest
 @testable import LocalCinema
@@ -92,5 +93,14 @@ final class ServicesAndStorageTests: XCTestCase {
         XCTAssertEqual(importedCount, 1)
         XCTAssertEqual(restored.items.first?.title, "Legacy Movie")
         XCTAssertEqual(restored.items.first?.position, 120.5)
+    }
+
+    func testMPVDimensionsMatch() {
+        XCTAssertTrue(MPVPlayback.dimensionsMatch(osdWidth: 1206, osdHeight: 2622, target: CGSize(width: 1206, height: 2622)))
+        XCTAssertTrue(MPVPlayback.dimensionsMatch(osdWidth: 2622, osdHeight: 1206, target: CGSize(width: 2622, height: 1206)))
+        XCTAssertFalse(MPVPlayback.dimensionsMatch(osdWidth: 1206, osdHeight: 2622, target: CGSize(width: 2622, height: 1206)))
+        XCTAssertFalse(MPVPlayback.dimensionsMatch(osdWidth: 2622, osdHeight: 1206, target: CGSize(width: 1206, height: 2622)))
+        XCTAssertFalse(MPVPlayback.dimensionsMatch(osdWidth: 0, osdHeight: 0, target: CGSize(width: 2622, height: 1206)))
+        XCTAssertTrue(MPVPlayback.dimensionsMatch(osdWidth: 2616, osdHeight: 1200, target: CGSize(width: 2622, height: 1206)))
     }
 }

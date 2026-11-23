@@ -74,23 +74,26 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertTrue(statsAI.waitForExistence(timeout: 6), app.debugDescription)
         attachScreenshot("Pro Player Icon HUD AI")
 
-        // Verify Landscape rotation button renders cleanly and can toggle back to Portrait
+        // Verify Landscape rotation resizes live libmpv osd-dimensions cleanly and toggles back to Portrait
         app.buttons["player-stats-toggle"].tap()
         let rotateBtn = app.buttons["player-rotate-toggle"]
         XCTAssertTrue(rotateBtn.waitForExistence(timeout: 6), app.debugDescription)
         rotateBtn.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(1.6))
-        if !videoSize.exists {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
-        XCTAssertTrue(videoSize.waitForExistence(timeout: 8), app.debugDescription)
+        XCTAssertTrue(
+            waitForDimensions(of: rotateBtn, in: app, timeout: 6.0) { w, h in w > h && w >= 1500 },
+            "Expected Landscape osd-dimensions (w > h && w >= 1500), got '\(String(describing: rotateBtn.value))'"
+        )
+        XCTAssertTrue(videoSize.waitForExistence(timeout: 6), app.debugDescription)
         attachScreenshot("Landscape Player")
         if !rotateBtn.exists {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
         XCTAssertTrue(rotateBtn.waitForExistence(timeout: 6))
         rotateBtn.tap()
-        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        XCTAssertTrue(
+            waitForDimensions(of: rotateBtn, in: app, timeout: 6.0) { w, h in h > w && h >= 1500 },
+            "Expected Portrait osd-dimensions (h > w && h >= 1500), got '\(String(describing: rotateBtn.value))'"
+        )
         if !videoDrawer.exists {
             app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
         }
@@ -153,11 +156,22 @@ final class LibrarySmokeTests: XCTestCase {
             waitUntilHittable(folder, dismissingPasswordPromptIn: app, timeout: 25),
             app.debugDescription
         )
+        RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        dismissPasswordPromptIfPresent(in: app)
+        XCTAssertTrue(
+            waitUntilHittable(folder, dismissingPasswordPromptIn: app, timeout: 8),
+            app.debugDescription
+        )
         folder.tap()
 
         let video = app.buttons["smb-entry-surround.mkv"]
+        if !waitUntilHittable(video, dismissingPasswordPromptIn: app, timeout: 8),
+           folder.exists && folder.isHittable {
+            dismissPasswordPromptIfPresent(in: app)
+            folder.tap()
+        }
         XCTAssertTrue(
-            waitUntilHittable(video, dismissingPasswordPromptIn: app, timeout: 20),
+            waitUntilHittable(video, dismissingPasswordPromptIn: app, timeout: 18),
             app.debugDescription
         )
         // Guard against a late iOS Save Password AutoFill sheet appearing right after navigation
@@ -238,6 +252,32 @@ final class LibrarySmokeTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.35))
         }
         return element.exists && element.isHittable
+    }
+
+    private func parseDimensions(_ value: Any?) -> (Int, Int)? {
+        guard let str = value as? String else { return nil }
+        let parts = str.split(separator: "x").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 2 else { return nil }
+        return (parts[0], parts[1])
+    }
+
+    private func waitForDimensions(
+        of element: XCUIElement,
+        in app: XCUIApplication,
+        timeout: TimeInterval,
+        predicate: (Int, Int) -> Bool
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if !element.exists {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            }
+            if element.exists, let (w, h) = parseDimensions(element.value), predicate(w, h) {
+                return true
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        return false
     }
 
     private func parsePlaybackSeconds(_ label: String) -> Int? {
