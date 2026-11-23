@@ -94,6 +94,8 @@ struct CinemaSettings: View {
                         .font(.footnote)
                     Link("MPVKit và thông tin giấy phép",
                          destination: URL(string: "https://github.com/mpvkit/MPVKit/tree/1.0.0")!)
+                    Link("FSRCNNX và thông tin giấy phép",
+                         destination: URL(string: "https://github.com/igv/FSRCNN-TensorFlow/releases/tag/1.1")!)
                 }
             }
             .scrollContentBackground(.hidden)

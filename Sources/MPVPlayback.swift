@@ -20,14 +20,21 @@ struct PlaybackStatus: Equatable {
     var subtitles: [PlaybackTrack] = []
     var videoSize: String?
     var outputChannels = 0
+    var neuralUpscalingActive = false
     var error: String?
 }
 
 enum VideoScaling: String, CaseIterable, Identifiable {
-    case standard, quality
+    case standard, quality, neural
     var id: Self { self }
-    var label: String { self == .quality ? "Lanczos sắc nét" : "Tiêu chuẩn" }
-    var filter: String { self == .quality ? "ewa_lanczossharp" : "bilinear" }
+    var label: String {
+        switch self {
+        case .standard: return "Tiêu chuẩn"
+        case .quality: return "Lanczos sắc nét"
+        case .neural: return "Siêu phân giải FSRCNNX ×2"
+        }
+    }
+    var filter: String { self == .standard ? "bilinear" : "ewa_lanczossharp" }
 }
 
 enum AudioOutput: String, CaseIterable, Identifiable {
@@ -47,6 +54,7 @@ final class MPVPlayback: ObservableObject {
     private var progress = PlaybackStatus()
     private var initialTime = 0.0
     private var nextTrackRead = Date.distantPast
+    private var currentScaler = VideoScaling.standard
 
     func open(_ url: URL, surface: CAMetalLayer, start: Double, scaler: VideoScaling, audio: AudioOutput) {
         work.async {
@@ -78,7 +86,6 @@ final class MPVPlayback: ObservableObject {
                 "hwdec": "videotoolbox",
                 "ao": "audiounit",
                 "audio-channels": audio.option,
-                "scale": scaler.filter,
                 "keep-open": "yes",
                 "sub-auto": "no",
                 "audio-file-auto": "no"
@@ -98,6 +105,7 @@ final class MPVPlayback: ObservableObject {
                 self.finish()
                 return
             }
+            self.applyScaling(scaler)
             self.command("loadfile", url.isFileURL ? url.path : url.absoluteString, "replace")
             let timer = DispatchSource.makeTimerSource(queue: self.work)
             timer.schedule(deadline: .now(), repeating: .milliseconds(160), leeway: .milliseconds(30))
@@ -135,7 +143,7 @@ final class MPVPlayback: ObservableObject {
     func selectSubtitle(_ id: Int?) { work.async { self.set("sid", id.map(String.init) ?? "no") } }
     func setSubtitleOffset(_ seconds: Double) { work.async { self.set("sub-delay", String(seconds)) } }
     func setSpeed(_ speed: Double) { work.async { self.set("speed", String(speed)) } }
-    func setScaling(_ scale: VideoScaling) { work.async { self.set("scale", scale.filter) } }
+    func setScaling(_ scale: VideoScaling) { work.async { self.applyScaling(scale) } }
     func setOutput(_ audio: AudioOutput) { work.async { self.set("audio-channels", audio.option) } }
 
     private func poll() {
@@ -164,10 +172,34 @@ final class MPVPlayback: ObservableObject {
             progress.duration = double("duration")
             if Date() >= nextTrackRead {
                 updateTracks()
+                updateScalingStatus()
                 nextTrackRead = Date().addingTimeInterval(0.75)
             }
         }
         publish()
+    }
+
+    private func applyScaling(_ scaling: VideoScaling) {
+        currentScaler = scaling
+        progress.neuralUpscalingActive = false
+        set("scale", scaling.filter)
+        if scaling == .neural,
+           let shader = Bundle.main.url(forResource: "FSRCNNX_x2_8-0-4-1", withExtension: "glsl",
+                                        subdirectory: "Shaders") {
+            command("change-list", "glsl-shaders", "set", shader.path)
+        } else {
+            command("change-list", "glsl-shaders", "clr", "")
+        }
+        publish()
+    }
+
+    private func updateScalingStatus() {
+        guard currentScaler == .neural else { return }
+        let count = min(max(Int(integer("vo-passes/fresh/count")), 0), 128)
+        progress.neuralUpscalingActive = (0..<count).contains { index in
+            // The upstream shader's final "aggregation" pass outputs the doubled luma plane.
+            string("vo-passes/fresh/\(index)/desc")?.localizedCaseInsensitiveContains("aggregation") == true
+        }
     }
 
     private func updateTracks() {

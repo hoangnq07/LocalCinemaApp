@@ -13,6 +13,10 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+        excludes: [Shaders]
+      - path: Sources/Shaders
+        buildPhase: resources
+        type: folder
     dependencies:
       - package: MPVKit
         product: MPVKit
@@ -33,8 +37,8 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.local.cinema
-        CURRENT_PROJECT_VERSION: 2
-        MARKETING_VERSION: "1.1.0"
+        CURRENT_PROJECT_VERSION: 3
+        MARKETING_VERSION: "1.2.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
   LocalCinemaUITests:
     platform: iOS
@@ -48,6 +52,16 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: "YES"
         PRODUCT_BUNDLE_IDENTIFIER: com.local.cinema.uitests
+  LocalCinemaTests:
+    platform: iOS
+    type: bundle.unit-test
+    sources: Tests
+    dependencies:
+      - target: LocalCinema
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: com.local.cinema.tests
 schemes:
   LocalCinema:
     build:
@@ -55,4 +69,5 @@ schemes:
         LocalCinema: all
     test:
       targets:
+        - LocalCinemaTests
         - LocalCinemaUITests

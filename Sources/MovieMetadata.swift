@@ -22,7 +22,7 @@ struct MovieMetadata: Codable, Equatable, Sendable {
 }
 
 enum TMDB {
-    static func search(_ query: String, token: String) async throws -> [MovieMetadata] {
+    static func search(_ query: String, token: String, session: URLSession = .shared) async throws -> [MovieMetadata] {
         var endpoint = URLComponents()
         endpoint.scheme = "https"
         endpoint.host = "api.themoviedb.org"
@@ -36,7 +36,7 @@ enum TMDB {
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await session.data(for: request)
         guard let status = (response as? HTTPURLResponse)?.statusCode else { throw TMDBError.response }
         if status == 401 || status == 403 { throw TMDBError.token }
         guard status == 200 else { throw TMDBError.response }

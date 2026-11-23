@@ -72,6 +72,11 @@ struct CinemaPlayer: View {
                 if let size = status.videoSize {
                     Text(size).font(.caption).foregroundStyle(CinemaStyle.muted)
                 }
+                if status.neuralUpscalingActive {
+                    Text("FSRCNNX ×2 đang chạy")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(CinemaStyle.accent)
+                }
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 10)
@@ -159,6 +164,7 @@ struct CinemaPlayer: View {
             menuIcon("speaker.wave.2")
         }
         .accessibilityLabel("Âm thanh")
+        .accessibilityValue(status.audio.first(where: \.selected)?.label ?? "")
         .onChange(of: audioOutput) { player.setOutput($0) }
     }
 
@@ -186,8 +192,13 @@ struct CinemaPlayer: View {
 
     private var settingsMenu: some View {
         Menu {
-            Picker("Nâng độ phân giải khi hiển thị", selection: $scaling) {
-                ForEach(VideoScaling.allCases) { option in Text(option.label).tag(option) }
+            Section("Nâng độ phân giải khi hiển thị") {
+                if scaling == .neural, !status.neuralUpscalingActive {
+                    Text("Đang dùng Lanczos. FSRCNNX cần vùng chiếu lớn hơn video nguồn.")
+                }
+                ForEach(VideoScaling.allCases) { option in
+                    checkButton(option.label, selected: scaling == option) { scaling = option }
+                }
             }
             Picker("Tốc độ phát", selection: $speed) {
                 ForEach([0.5, 0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { value in

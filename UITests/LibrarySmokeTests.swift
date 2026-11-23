@@ -37,6 +37,26 @@ final class LibrarySmokeTests: XCTestCase {
             .matching(NSPredicate(format: "label CONTAINS %@", "Stereo track")).firstMatch
         XCTAssertTrue(surround.waitForExistence(timeout: 8), app.debugDescription)
         XCTAssertTrue(stereo.exists)
+        stereo.tap()
+
+        let audioMenu = app.buttons["Âm thanh"]
+        expectation(for: NSPredicate(format: "value CONTAINS %@", "Stereo track"), evaluatedWith: audioMenu)
+        waitForExpectations(timeout: 8)
+
+        let settings = app.buttons["Tùy chọn phát"]
+        settings.tap()
+        app.buttons["Siêu phân giải FSRCNNX ×2"].tap()
+        let active = app.staticTexts["FSRCNNX ×2 đang chạy"]
+        XCTAssertTrue(active.waitForExistence(timeout: 15), app.debugDescription)
+        attachScreenshot("FSRCNNX active")
+
+        settings.tap()
+        app.buttons["Lanczos sắc nét"].tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: active)
+        waitForExpectations(timeout: 8)
+
+        app.buttons["Đóng trình phát"].tap()
+        XCTAssertTrue(app.staticTexts["Đang xem"].waitForExistence(timeout: 8))
     }
 
     private func attachScreenshot(_ name: String) {
