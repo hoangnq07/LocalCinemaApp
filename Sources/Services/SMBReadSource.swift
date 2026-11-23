@@ -72,7 +72,7 @@ final class SMBReadSource: @unchecked Sendable {
             guard offset >= 0, offset < length else { return -1 }
 
             if offset < bufferStart || offset - bufferStart >= Int64(data.count) {
-                let burst = min(length - offset, 2 * 1024 * 1024)
+                let burst = min(length - offset, 4 * 1024 * 1024)
                 guard let bytes = fetch(offset..<(offset + burst)), !bytes.isEmpty else { return -1 }
                 bufferStart = offset
                 data = bytes
@@ -107,7 +107,7 @@ final class SMBReadSource: @unchecked Sendable {
             source.client.contents(atPath: source.path, range: range, progress: nil) {
                 request.complete(try? $0.get())
             }
-            let waited = request.done.wait(timeout: .now() + 12)
+            let waited = request.done.wait(timeout: .now() + 14)
 
             lock.lock()
             pending = nil

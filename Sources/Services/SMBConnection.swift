@@ -1,13 +1,6 @@
 import AMSMB2
 import Foundation
-import Security
 import SwiftUI
-
-struct SMBMediaLocation: Codable, Equatable, Sendable {
-    let connectionID: UUID
-    let share: String
-    let path: String
-}
 
 struct SMBAddress {
     let server: URL
@@ -55,11 +48,20 @@ struct SMBProfile: Codable, Sendable, Identifiable {
     }
 }
 
+struct SMBScannedFile: Sendable {
+    let share: String
+    let path: String
+    let name: String
+    let fileSize: Int64?
+    let sidecarSubtitles: [String]
+}
+
 @MainActor
 final class SMBProfiles: ObservableObject {
     @Published private(set) var saved: [SMBProfile]
     private let defaults = UserDefaults.standard
     private let storeKey = "smbProfiles"
+    private let keychainService = "com.local.cinema.smb"
 
     init() {
         if let data = UserDefaults.standard.data(forKey: "smbProfiles"),
@@ -73,7 +75,9 @@ final class SMBProfiles: ObservableObject {
     func save(_ profile: SMBProfile, password: String) throws {
         let next = [profile] + saved.filter { $0.id != profile.id }
         let data = try JSONEncoder().encode(next)
-        try Self.writePassword(password, for: profile.id)
+        guard KeychainStore.write(password, service: keychainService, account: profile.id.uuidString) else {
+            throw SMBFailure.credentials
+        }
         defaults.set(data, forKey: storeKey)
         saved = next
     }
@@ -81,20 +85,15 @@ final class SMBProfiles: ObservableObject {
     func remove(_ profile: SMBProfile) throws {
         let next = saved.filter { $0.id != profile.id }
         let data = try JSONEncoder().encode(next)
-        let result = SecItemDelete(Self.key(profile.id) as CFDictionary)
-        guard result == errSecSuccess || result == errSecItemNotFound else { throw SMBFailure.credentials }
+        guard KeychainStore.delete(service: keychainService, account: profile.id.uuidString) else {
+            throw SMBFailure.credentials
+        }
         defaults.set(data, forKey: storeKey)
         saved = next
     }
 
     func password(for profile: SMBProfile) -> String {
-        var query = Self.key(profile.id)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var found: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &found) == errSecSuccess,
-              let data = found as? Data, let password = String(data: data, encoding: .utf8) else { return "" }
-        return password
+        KeychainStore.read(service: keychainService, account: profile.id.uuidString) ?? ""
     }
 
     func prepare(_ location: SMBMediaLocation) async throws -> SMBReadSource {
@@ -106,24 +105,70 @@ final class SMBProfiles: ObservableObject {
         return SMBReadSource(client: client, path: location.path, length: size)
     }
 
-    private static func key(_ id: UUID) -> [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "com.local.cinema.smb",
-            kSecAttrAccount as String: id.uuidString
-        ]
+    func scanFolder(profile: SMBProfile, share: String, folderPath: String) async throws -> [SMBScannedFile] {
+        let client = try profile.makeClient(password: password(for: profile))
+        try await client.connectShare(name: share)
+        let rows = try await client.contentsOfDirectory(atPath: folderPath, recursive: true)
+
+        var subtitleByStem: [String: [String]] = [:]
+        var videoRows: [(name: String, path: String, size: Int64?)] = []
+
+        for row in rows {
+            let isDir = (row[.isDirectoryKey] as? NSNumber)?.boolValue == true
+            guard !isDir, let relPath = (row[.pathKey] as? String) ?? (row[.nameKey] as? String) else { continue }
+            let normalized = relPath.hasPrefix("/") ? relPath : (folderPath == "/" ? "/\(relPath)" : "\(folderPath)/\(relPath)")
+            let url = URL(fileURLWithPath: normalized)
+            let ext = url.pathExtension.lowercased()
+            let stem = url.deletingPathExtension().path.lowercased()
+            if MediaLibrary.subtitleExtensions.contains(ext) {
+                subtitleByStem[stem, default: []].append(normalized)
+            } else if MediaLibrary.fileExtensions.contains(ext) {
+                let size = (row[.fileSizeKey] as? NSNumber)?.int64Value
+                videoRows.append((url.lastPathComponent, normalized, size))
+            }
+        }
+
+        return videoRows.map { row in
+            let stem = URL(fileURLWithPath: row.path).deletingPathExtension().path.lowercased()
+            let exactMatches = subtitleByStem[stem] ?? []
+            let prefixMatches = subtitleByStem.filter { $0.key.hasPrefix(stem + ".") }.flatMap(\.value)
+            let sidecars = Array(Set(exactMatches + prefixMatches)).sorted()
+            return SMBScannedFile(share: share, path: row.path, name: row.name, fileSize: row.size, sidecarSubtitles: sidecars)
+        }
     }
 
-    private static func writePassword(_ password: String, for id: UUID) throws {
-        let query = key(id)
-        let attributes = [kSecValueData as String: Data(password.utf8)]
-        let updated = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
-        if updated == errSecSuccess { return }
-        guard updated == errSecItemNotFound else { throw SMBFailure.credentials }
-        var entry = query
-        entry[kSecValueData as String] = attributes[kSecValueData as String]
-        entry[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        guard SecItemAdd(entry as CFDictionary, nil) == errSecSuccess else { throw SMBFailure.credentials }
+    func downloadSidecarSubtitles(for location: SMBMediaLocation, sidecars: [String]) async -> [URL] {
+        guard !sidecars.isEmpty,
+              let profile = saved.first(where: { $0.id == location.connectionID }),
+              let client = try? profile.makeClient(password: password(for: profile)) else {
+            return []
+        }
+        do {
+            try await client.connectShare(name: location.share)
+        } catch {
+            return []
+        }
+
+        var localURLs: [URL] = []
+        let subDir = FileManager.default.temporaryDirectory.appendingPathComponent("LocalCinemaSubs", isDirectory: true)
+        try? FileManager.default.createDirectory(at: subDir, withIntermediateDirectories: true)
+
+        for remotePath in sidecars.prefix(4) {
+            do {
+                var data = Data()
+                for try await chunk in client.contents(atPath: remotePath, range: 0..<Int64(8 * 1024 * 1024)) {
+                    data.append(chunk)
+                }
+                guard !data.isEmpty else { continue }
+                let filename = URL(fileURLWithPath: remotePath).lastPathComponent
+                let dest = subDir.appendingPathComponent("\(UUID().uuidString)_\(filename)")
+                try data.write(to: dest, options: .atomic)
+                localURLs.append(dest)
+            } catch {
+                continue
+            }
+        }
+        return localURLs
     }
 }
 

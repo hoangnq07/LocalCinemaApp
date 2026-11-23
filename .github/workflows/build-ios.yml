@@ -2,7 +2,7 @@ name: Build Unsigned IPA
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/obsidian-cinema-v2]
   workflow_dispatch:
 
 permissions:
@@ -41,6 +41,8 @@ jobs:
           mkdir -p Payload
           ditto build/Build/Products/Release-iphoneos/LocalCinema.app Payload/LocalCinema.app
           test -f Payload/LocalCinema.app/Frameworks/AMSMB2.framework/AMSMB2
+          test -f Payload/LocalCinema.app/Shaders/FSRCNNX_x2_8-0-4-1.glsl
+          test -f Payload/LocalCinema.app/Shaders/CAS_Sharpen.glsl
           zip -qr LocalCinema-unsigned.ipa Payload
           unzip -tq LocalCinema-unsigned.ipa
 
@@ -51,9 +53,9 @@ jobs:
           path: LocalCinema-unsigned.ipa
           if-no-files-found: error
 
-      - name: Exercise HTTP and authenticated SMB playback in the iPhone simulator
+      - name: Run unit and simulator UI tests
         if: github.event_name == 'workflow_dispatch'
-        timeout-minutes: 18
+        timeout-minutes: 20
         run: |
           device=$(xcrun simctl list devices available -j | python3 -c '
           import json, sys

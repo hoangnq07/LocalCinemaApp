@@ -4,7 +4,9 @@ import SwiftUI
 struct SMBSourceView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var profiles: SMBProfiles
-    let play: (SMBMediaLocation) -> Bool
+    @ObservedObject var library: MediaLibrary
+    var initialAddress: String? = nil
+    let play: (SMBMediaLocation, [String]) -> Bool
 
     @State private var address = ""
     @State private var user = ""
@@ -16,6 +18,7 @@ struct SMBSourceView: View {
     @State private var level: Level?
     @State private var entries: [Entry] = []
     @State private var loading = false
+    @State private var scanning = false
     @State private var message: String?
     @State private var removeProfile: SMBProfile?
     @FocusState private var focusedField: Field?
@@ -33,13 +36,18 @@ struct SMBSourceView: View {
             .background(CinemaStyle.background)
             .navigationTitle(level?.title ?? "Nguồn SMB")
             .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if address.isEmpty, let initialAddress {
+                    address = initialAddress
+                }
+            }
             .toolbar {
                 if level != nil {
                     ToolbarItem(placement: .cancellationAction) {
                         Button { goBack() } label: {
                             Label("Quay lại", systemImage: "chevron.left")
                         }
-                        .disabled(loading)
+                        .disabled(loading || scanning)
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("Đóng") { dismiss() } }
@@ -130,6 +138,24 @@ struct SMBSourceView: View {
 
     private func contents(_ level: Level) -> some View {
         List {
+            if case .folder(let share, let path) = level, let connection {
+                Section {
+                    Button {
+                        Task { await scanIntoLibrary(profile: connection, share: share, path: path) }
+                    } label: {
+                        HStack {
+                            Label(scanning ? "Đang quét vào Thư viện…" : "Quét thư mục vào Thư viện",
+                                  systemImage: "square.and.arrow.down.on.square")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(CinemaStyle.accent)
+                            Spacer()
+                            if scanning { ProgressView() }
+                        }
+                    }
+                    .disabled(scanning)
+                }
+            }
+
             if entries.isEmpty {
                 Text("Không có thư mục hoặc video được hỗ trợ.")
                     .foregroundStyle(CinemaStyle.muted)
@@ -143,17 +169,32 @@ struct SMBSourceView: View {
                         if entry.directory {
                             changeLevel(.folder(share: share, path: path + [entry.name]))
                         } else if let connection {
-                            let location = SMBMediaLocation(connectionID: connection.id, share: share,
-                                                            path: Self.filePath(path + [entry.name]))
-                            if !play(location) { message = "Không thể lưu video vào thư viện." }
+                            let location = SMBMediaLocation(
+                                connectionID: connection.id,
+                                share: share,
+                                path: Self.filePath(path + [entry.name])
+                            )
+                            if !play(location, entry.sidecars) {
+                                message = "Không thể lưu video vào thư viện."
+                            }
                         }
                     }
                 } label: {
-                    HStack {
-                        Label(entry.name, systemImage: entry.directory ? "folder" : "play.rectangle")
-                            .lineLimit(2)
+                    HStack(spacing: 10) {
+                        Image(systemName: entry.directory ? "folder.fill" : "play.rectangle.fill")
+                            .foregroundStyle(entry.directory ? CinemaStyle.accent : CinemaStyle.gold)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(entry.name).lineLimit(2)
+                            if !entry.sidecars.isEmpty {
+                                Text("Phụ đề ngoài: \(entry.sidecars.count) tệp")
+                                    .font(.caption2)
+                                    .foregroundStyle(CinemaStyle.accent)
+                            }
+                        }
                         Spacer()
-                        Image(systemName: entry.directory ? "chevron.right" : "play.fill").font(.caption)
+                        Image(systemName: entry.directory ? "chevron.right" : "play.fill")
+                            .font(.caption)
+                            .foregroundStyle(CinemaStyle.muted)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
@@ -164,7 +205,11 @@ struct SMBSourceView: View {
         }
         .disabled(loading)
         .overlay {
-            if loading { ProgressView().padding(20).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12)) }
+            if loading {
+                ProgressView()
+                    .padding(20)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            }
         }
     }
 
@@ -181,11 +226,15 @@ struct SMBSourceView: View {
         guard let target = SMBAddress(address), !loading else { return }
         focusedField = nil
         let secret = password
-        let profile = SMBProfile(id: editingID ?? UUID(),
-                                 address: address.trimmingCharacters(in: .whitespacesAndNewlines),
-                                 user: user.trimmingCharacters(in: .whitespacesAndNewlines),
-                                 domain: domain.trimmingCharacters(in: .whitespacesAndNewlines))
-        let destination = target.folders.first.map { Level.folder(share: $0, path: Array(target.folders.dropFirst())) } ?? .shares
+        let profile = SMBProfile(
+            id: editingID ?? UUID(),
+            address: address.trimmingCharacters(in: .whitespacesAndNewlines),
+            user: user.trimmingCharacters(in: .whitespacesAndNewlines),
+            domain: domain.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let destination = target.folders.first.map {
+            Level.folder(share: $0, path: Array(target.folders.dropFirst()))
+        } ?? .shares
         loading = true
         Task {
             defer { loading = false }
@@ -232,26 +281,67 @@ struct SMBSourceView: View {
         }
     }
 
+    private func scanIntoLibrary(profile: SMBProfile, share: String, path: [String]) async {
+        scanning = true
+        defer { scanning = false }
+        do {
+            let folderPath = Self.filePath(path)
+            let files = try await profiles.scanFolder(profile: profile, share: share, folderPath: folderPath)
+            let items = files.map { file -> MediaItem in
+                let parsed = FilenameParser.parse(file.name, fileSize: file.fileSize, sidecars: file.sidecarSubtitles)
+                let loc = SMBMediaLocation(connectionID: profile.id, share: share, path: file.path)
+                return MediaItem(
+                    title: parsed.cleanTitle,
+                    source: .smb(loc),
+                    mediaInfo: parsed.technicalInfo,
+                    episodeInfo: parsed.episodeInfo
+                )
+            }
+            let added = library.batchAdd(items)
+            message = "Đã thêm \(added) video từ \(share) vào Thư viện."
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
     private static func fetch(_ level: Level, using client: SMB2Manager) async throws -> [Entry] {
-        let entries: [Entry]
         switch level {
         case .shares:
-            entries = try await client.listShares()
+            return try await client.listShares()
                 .filter { SMBAddress.validComponent($0.name) }
-                .map { Entry(name: $0.name, directory: true) }
+                .map { Entry(name: $0.name, directory: true, sidecars: []) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         case .folder(let share, let path):
             try await client.connectShare(name: share)
-            entries = try await client.contentsOfDirectory(atPath: filePath(path)).compactMap { row in
-                guard let name = row[.nameKey] as? String, SMBAddress.validComponent(name) else { return nil }
+            let rows = try await client.contentsOfDirectory(atPath: filePath(path))
+            var subsByStem: [String: [String]] = [:]
+            var rawEntries: [(name: String, folder: Bool)] = []
+
+            for row in rows {
+                guard let name = row[.nameKey] as? String, SMBAddress.validComponent(name) else { continue }
                 let folder = (row[.isDirectoryKey] as? NSNumber)?.boolValue == true
-                let suffix = URL(fileURLWithPath: name).pathExtension.lowercased()
-                guard folder || MediaLibrary.fileExtensions.contains(suffix) else { return nil }
-                return Entry(name: name, directory: folder)
+                let url = URL(fileURLWithPath: name)
+                let suffix = url.pathExtension.lowercased()
+                if !folder && MediaLibrary.subtitleExtensions.contains(suffix) {
+                    let stem = url.deletingPathExtension().lastPathComponent.lowercased()
+                    subsByStem[stem, default: []].append(filePath(path + [name]))
+                } else if folder || MediaLibrary.fileExtensions.contains(suffix) {
+                    rawEntries.append((name, folder))
+                }
             }
-        }
-        return entries.sorted { left, right in
-            if left.directory != right.directory { return left.directory }
-            return left.name.localizedStandardCompare(right.name) == .orderedAscending
+
+            return rawEntries.map { row in
+                if row.folder {
+                    return Entry(name: row.name, directory: true, sidecars: [])
+                }
+                let stem = URL(fileURLWithPath: row.name).deletingPathExtension().lastPathComponent.lowercased()
+                let exact = subsByStem[stem] ?? []
+                let prefixed = subsByStem.filter { $0.key.hasPrefix(stem + ".") }.flatMap(\.value)
+                return Entry(name: row.name, directory: false, sidecars: Array(Set(exact + prefixed)).sorted())
+            }.sorted { left, right in
+                if left.directory != right.directory { return left.directory }
+                return left.name.localizedStandardCompare(right.name) == .orderedAscending
+            }
         }
     }
 
@@ -275,48 +365,8 @@ struct SMBSourceView: View {
         var id: String { name }
         let name: String
         let directory: Bool
+        let sidecars: [String]
     }
 
     private enum Field { case address, user, password, domain }
-}
-
-struct SMBPlayerView: View {
-    @Environment(\.dismiss) private var dismiss
-    @ObservedObject var profiles: SMBProfiles
-    let item: MediaItem
-    let location: SMBMediaLocation
-    let save: (Double, Double) -> Void
-
-    @State private var source: SMBReadSource?
-    @State private var error: String?
-
-    var body: some View {
-        Group {
-            if let source, let url = URL(string: source.uri) {
-                CinemaPlayer(item: item, url: url, smbSource: source, save: save)
-            } else {
-                ZStack {
-                    CinemaStyle.background.ignoresSafeArea()
-                    VStack(spacing: 18) {
-                        if let error {
-                            Text(error).multilineTextAlignment(.center)
-                        } else {
-                            ProgressView("Đang mở video từ SMB…")
-                        }
-                        Button("Đóng") { dismiss() }
-                    }
-                    .padding(22)
-                }
-            }
-        }
-        .task {
-            do {
-                let stream = try await profiles.prepare(location)
-                try Task.checkCancellation()
-                source = stream
-            } catch {
-                if !Task.isCancelled { self.error = error.localizedDescription }
-            }
-        }
-    }
 }

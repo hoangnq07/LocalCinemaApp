@@ -1,0 +1,3 @@
+CAS_Sharpen.glsl
+Contrast Adaptive Sharpening shader for mpv/libplacebo.
+MIT License — Local Cinema Contributors.

@@ -16,6 +16,10 @@ targets:
     platform: iOS
     sources:
       - path: Sources
+        excludes: [Shaders]
+      - path: Sources/Shaders
+        buildPhase: resources
+        type: folder
     dependencies:
       - package: MPVKit
         product: MPVKit
@@ -29,19 +33,39 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen: {}
+        UIBackgroundModes:
+          - audio
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-        NSLocalNetworkUsageDescription: "Kết nối tới máy chủ phim nội bộ trong mạng LAN"
+        NSLocalNetworkUsageDescription: "Kết nối tới máy chủ phim nội bộ (SMB, WebDAV, Jellyfin, Emby, Plex) trong mạng LAN"
+        NSBonjourServices:
+          - _smb._tcp
+          - _webdav._tcp
+          - _webdavs._tcp
+          - _http._tcp
+        NSPhotoLibraryAddUsageDescription: "Lưu ảnh chụp khung hình video vào thư viện Ảnh"
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.local.cinema
-        CURRENT_PROJECT_VERSION: 4
-        MARKETING_VERSION: "1.3.0"
+        CURRENT_PROJECT_VERSION: 5
+        MARKETING_VERSION: "2.0.0"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+  LocalCinemaTests:
+    platform: iOS
+    type: bundle.unit-test
+    sources: Tests
+    dependencies:
+      - target: LocalCinema
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        PRODUCT_BUNDLE_IDENTIFIER: com.local.cinema.tests
   LocalCinemaUITests:
     platform: iOS
     type: bundle.ui-testing
@@ -61,4 +85,5 @@ schemes:
         LocalCinema: all
     test:
       targets:
+        - LocalCinemaTests
         - LocalCinemaUITests
