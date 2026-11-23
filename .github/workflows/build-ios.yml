@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -49,3 +49,48 @@ jobs:
           name: LocalCinema-unsigned-ipa
           path: LocalCinema-unsigned.ipa
           if-no-files-found: error
+
+      - name: Exercise library and MKV in the iPhone simulator
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          device=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          phones = [device for runtime in reversed(list(runtimes.values()))
+                    for device in runtime if device["name"].startswith("iPhone")]
+          if not phones:
+              sys.exit("No available iPhone simulator")
+          print(phones[0]["udid"])
+          ')
+          python3 -m http.server 8712 --bind 127.0.0.1 --directory UITests/Fixture > "$RUNNER_TEMP/fixture.log" 2>&1 &
+          fixture_pid=$!
+          trap 'kill "$fixture_pid" 2>/dev/null || true' EXIT
+
+          xcodebuild \
+            -project LocalCinema.xcodeproj \
+            -scheme LocalCinema \
+            -destination "platform=iOS Simulator,id=$device" \
+            -derivedDataPath build \
+            -parallel-testing-enabled NO \
+            -resultBundlePath "$RUNNER_TEMP/LocalCinemaSmoke" \
+            test
+
+      - name: Export simulator screenshots
+        if: always() && github.event_name == 'workflow_dispatch'
+        run: |
+          if [[ -d "$RUNNER_TEMP/LocalCinemaSmoke.xcresult" ]]; then
+            xcrun xcresulttool export attachments \
+              --path "$RUNNER_TEMP/LocalCinemaSmoke.xcresult" \
+              --output-path "$RUNNER_TEMP/LocalCinemaScreenshots"
+          fi
+
+      - name: Upload iPhone simulator test report
+        if: always() && github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: LocalCinema-simulator-report
+          path: |
+            ${{ runner.temp }}/LocalCinemaSmoke.xcresult
+            ${{ runner.temp }}/LocalCinemaScreenshots
+            ${{ runner.temp }}/fixture.log
+          if-no-files-found: ignore
