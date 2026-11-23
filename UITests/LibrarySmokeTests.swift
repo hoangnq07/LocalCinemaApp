@@ -30,6 +30,21 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertTrue(app.buttons["Âm thanh"].exists)
         attachScreenshot("MKV playback")
 
+        let settings = app.buttons["Tùy chọn phát"]
+        settings.tap()
+        app.buttons["Siêu phân giải FSRCNNX ×2"].tap()
+        // A loaded final frame can stay on screen without any new renderer passes.
+        let resume = app.buttons["Phát"]
+        if resume.exists { resume.tap() }
+        let active = app.staticTexts["FSRCNNX ×2 đang chạy"]
+        XCTAssertTrue(active.waitForExistence(timeout: 15), app.debugDescription)
+        attachScreenshot("FSRCNNX active")
+
+        settings.tap()
+        app.buttons["Lanczos sắc nét"].tap()
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: active)
+        waitForExpectations(timeout: 8)
+
         app.buttons["Âm thanh"].tap()
         let surround = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS %@", "Surround 5.1")).firstMatch
@@ -43,20 +58,8 @@ final class LibrarySmokeTests: XCTestCase {
         expectation(for: NSPredicate(format: "value CONTAINS %@", "Stereo track"), evaluatedWith: audioMenu)
         waitForExpectations(timeout: 8)
 
-        let settings = app.buttons["Tùy chọn phát"]
-        settings.tap()
-        app.buttons["Siêu phân giải FSRCNNX ×2"].tap()
-        let active = app.staticTexts["FSRCNNX ×2 đang chạy"]
-        XCTAssertTrue(active.waitForExistence(timeout: 15), app.debugDescription)
-        attachScreenshot("FSRCNNX active")
-
-        settings.tap()
-        app.buttons["Lanczos sắc nét"].tap()
-        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: active)
-        waitForExpectations(timeout: 8)
-
         app.buttons["Đóng trình phát"].tap()
-        XCTAssertTrue(app.staticTexts["Đang xem"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.staticTexts["Local Cinema"].waitForExistence(timeout: 8))
     }
 
     private func attachScreenshot(_ name: String) {

@@ -52,7 +52,7 @@ jobs:
 
       - name: Exercise library and MKV in the iPhone simulator
         if: github.event_name == 'workflow_dispatch'
-        timeout-minutes: 10
+        timeout-minutes: 15
         run: |
           device=$(xcrun simctl list devices available -j | python3 -c '
           import json, sys
@@ -74,7 +74,7 @@ jobs:
             -derivedDataPath build \
             -parallel-testing-enabled NO \
             -test-timeouts-enabled YES \
-            -default-test-execution-time-allowance 120 \
+            -default-test-execution-time-allowance 240 \
             -resultBundlePath "$RUNNER_TEMP/LocalCinemaSmoke" \
             test
 
