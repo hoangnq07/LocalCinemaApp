@@ -49,7 +49,7 @@ struct SettingsView: View {
                     }
                     Picker("HDR gốc", selection: $hdrMode) {
                         ForEach(HDRDisplayMode.allCases) { mode in
-                            Text(mode.label).tag(mode)
+                            Text(mode.shortLabel).tag(mode)
                         }
                     }
                     Picker("SDR → HDR", selection: $sdrToHDR) {
@@ -79,7 +79,7 @@ struct SettingsView: View {
                     }
                     Picker("Âm thanh", selection: $audioOutput) {
                         ForEach(AudioOutput.allCases) { out in
-                            Text(out.label).tag(out)
+                            Text(out.shortLabel).tag(out)
                         }
                     }
                 }

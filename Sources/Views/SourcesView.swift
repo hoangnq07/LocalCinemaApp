@@ -230,14 +230,14 @@ struct SourcesView: View {
 
             ForEach(smbProfiles.saved) { profile in
                 Button { sheet = .smb(prefill: profile.address) } label: {
-                    sourceRowCard(badge: "SMB", title: profile.address, subtitle: profile.user.isEmpty ? "Guest" : profile.user, tag: "SMB")
+                    sourceRowCard(badge: "SMB", title: profile.address, subtitle: profile.user.isEmpty ? "Guest" : profile.user)
                 }
                 .buttonStyle(.plain)
             }
 
             ForEach(webdavProfiles.saved) { profile in
                 Button { sheet = .webdav(prefill: profile) } label: {
-                    sourceRowCard(badge: "DAV", title: profile.name, subtitle: profile.baseURL, tag: "DAV")
+                    sourceRowCard(badge: "DAV", title: profile.name, subtitle: profile.baseURL)
                 }
                 .buttonStyle(.plain)
             }
@@ -314,7 +314,7 @@ struct SourcesView: View {
         .obsidianGlass(cornerRadius: 14)
     }
 
-    private func sourceRowCard(badge: String, title: String, subtitle: String, tag: String) -> some View {
+    private func sourceRowCard(badge: String, title: String, subtitle: String, tag: String? = nil) -> some View {
         HStack(spacing: 12) {
             Text(badge)
                 .font(.caption2.weight(.bold))
@@ -324,7 +324,9 @@ struct SourcesView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(CinemaStyle.text).lineLimit(1)
-                    TechBadge(text: tag, tone: .accent)
+                    if let tag, !tag.isEmpty {
+                        TechBadge(text: tag, tone: .accent)
+                    }
                 }
                 Text(subtitle).font(.caption2).foregroundStyle(CinemaStyle.muted).lineLimit(1)
             }

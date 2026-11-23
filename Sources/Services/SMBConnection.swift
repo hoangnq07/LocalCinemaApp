@@ -216,10 +216,11 @@ final class SMBProfiles: ObservableObject {
 
         for remotePath in sidecars.prefix(8) {
             do {
-                var data = Data()
-                for try await chunk in client.contents(atPath: remotePath, range: 0..<Int64(8 * 1024 * 1024)) {
-                    data.append(chunk)
-                }
+                let data = try await client.contents(
+                    atPath: remotePath,
+                    range: 0..<Int64(8 * 1024 * 1024),
+                    progress: nil
+                )
                 guard !data.isEmpty else { continue }
                 let filename = URL(fileURLWithPath: remotePath).lastPathComponent
                 let dest = subDir.appendingPathComponent("\(UUID().uuidString)_\(filename)")

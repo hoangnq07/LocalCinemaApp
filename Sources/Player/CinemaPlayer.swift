@@ -321,7 +321,7 @@ struct CinemaPlayer: View {
             Spacer(minLength: 0)
             bottomBar
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(
             LinearGradient(
@@ -343,64 +343,69 @@ struct CinemaPlayer: View {
     }
 
     private var topBar: some View {
-        HStack(spacing: 10) {
-            iconButton("Đóng trình phát", icon: "xmark", size: 38) {
+        let btnSize: CGFloat = isLandscape ? 38 : 34
+        return HStack(spacing: 8) {
+            iconButton("Đóng trình phát", icon: "xmark", size: isLandscape ? 38 : 36) {
                 dismiss()
             }
 
-            HStack(spacing: 7) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayTitle)
-                    .font(.subheadline.weight(.bold))
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                if let size = status.videoSize {
-                    Text(size)
-                        .font(.caption2.monospacedDigit())
-                        .foregroundStyle(CinemaStyle.muted)
-                        .lineLimit(1)
-                }
-
-                if hasActiveEnhancements {
-                    HStack(spacing: 4) {
-                        if status.neuralUpscalingActive {
-                            Circle().fill(CinemaStyle.accent).frame(width: 6, height: 6)
+                if status.videoSize != nil || hasActiveEnhancements {
+                    HStack(spacing: 5) {
+                        if let size = status.videoSize {
+                            Text(size)
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(CinemaStyle.muted)
+                                .fixedSize(horizontal: true, vertical: false)
                         }
-                        if status.sdrToHDRActive || status.nativeHDRActive {
-                            Circle().fill(CinemaStyle.gold).frame(width: 6, height: 6)
-                        }
-                        if status.interpolationActive {
-                            Circle().fill(CinemaStyle.accent.opacity(0.85)).frame(width: 6, height: 6)
-                        }
-                        if status.thermalThrottled {
-                            Circle().fill(CinemaStyle.danger).frame(width: 6, height: 6)
+                        if hasActiveEnhancements {
+                            HStack(spacing: 3.5) {
+                                if status.neuralUpscalingActive {
+                                    Circle().fill(CinemaStyle.accent).frame(width: 5.5, height: 5.5)
+                                }
+                                if status.sdrToHDRActive || status.nativeHDRActive {
+                                    Circle().fill(CinemaStyle.gold).frame(width: 5.5, height: 5.5)
+                                }
+                                if status.interpolationActive {
+                                    Circle().fill(CinemaStyle.accent.opacity(0.85)).frame(width: 5.5, height: 5.5)
+                                }
+                                if status.thermalThrottled {
+                                    Circle().fill(CinemaStyle.danger).frame(width: 5.5, height: 5.5)
+                                }
+                            }
+                            .accessibilityHidden(true)
                         }
                     }
-                    .accessibilityHidden(true)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(.black.opacity(0.54), in: Capsule())
-            .overlay(Capsule().strokeBorder(Color.white.opacity(0.14), lineWidth: 0.75))
+            .padding(.horizontal, 11)
+            .padding(.vertical, 6)
+            .background(.black.opacity(0.54), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.white.opacity(0.14), lineWidth: 0.75))
+            .layoutPriority(1)
 
             Spacer(minLength: 4)
 
-            HStack(spacing: 7) {
-                iconButton("Phát âm thanh nền", icon: "headphones", size: 38, active: backgroundAudio) {
+            HStack(spacing: 6) {
+                iconButton("Phát âm thanh nền", icon: "headphones", size: btnSize, active: backgroundAudio) {
                     backgroundAudio.toggle()
                     showHUD(icon: "headphones", text: backgroundAudio ? "Phát nền: Bật" : "Phát nền: Tắt")
                     clearHUDDelayed()
                 }
-                iconButton("Thống kê kỹ thuật", icon: "info.circle", size: 38, active: showStats) {
+                iconButton("Thống kê kỹ thuật", icon: "info.circle", size: btnSize, active: showStats) {
                     showStats.toggle()
                 }
                 .accessibilityIdentifier("player-stats-toggle")
-                iconButton("Khóa cảm ứng", icon: "lock", size: 38) {
+                iconButton("Khóa cảm ứng", icon: "lock", size: btnSize) {
                     locked = true
                     activeDrawer = nil
                 }
-                iconButton("Xoay màn hình", icon: "rotate.right", size: 38) {
+                iconButton("Xoay màn hình", icon: "rotate.right", size: btnSize) {
                     toggleOrientation()
                 }
                 .accessibilityIdentifier("player-rotate-toggle")

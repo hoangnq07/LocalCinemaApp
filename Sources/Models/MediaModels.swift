@@ -49,6 +49,13 @@ enum HDRDisplayMode: String, CaseIterable, Identifiable, Codable, Sendable {
         case .toneMapSDR: return "Tone-map về SDR"
         }
     }
+
+    var shortLabel: String {
+        switch self {
+        case .autoEDR: return "Tự động EDR"
+        case .toneMapSDR: return "SDR"
+        }
+    }
 }
 
 enum SDRtoHDRMode: String, CaseIterable, Identifiable, Codable, Sendable {

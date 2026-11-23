@@ -241,8 +241,8 @@ final class MPVPlayback: ObservableObject {
         work.async { self.finish() }
     }
 
-    /// Forces libmpv's `gpu-next` + `moltenvk` context to re-read `CAMetalLayer.drawableSize`
-    /// after orientation or container size changes (working around MPVKit's missing `VO_EVENT_RESIZE`).
+    /// Forces libmpv's `gpu-next` + `moltenvk` driver to tear down and recreate its Vulkan swapchain
+    /// against the updated `CAMetalLayer.drawableSize` after orientation/container changes.
     func handleSurfaceResize(_ drawableSize: CGSize) {
         work.async {
             guard self.handle != nil,
@@ -258,25 +258,24 @@ final class MPVPlayback: ObservableObject {
                 return
             }
             self.lastConfiguredSize = drawableSize
-            let activeVid = self.string("vid")
-            guard activeVid != "no" else { return }
-            let restoreVid = (activeVid?.isEmpty == false) ? activeVid! : "auto"
-            let wasPaused = self.flag("pause")
-
             self.isReconfiguringSurface = true
-            self.setOptional("vid", "no")
-            self.work.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                guard let self else { return }
-                defer { self.isReconfiguringSurface = false }
-                guard self.handle != nil else { return }
-                self.setOptional("vid", restoreVid)
-                self.reconcileEnhancements(force: true)
-                if wasPaused {
-                    self.work.asyncAfter(deadline: .now() + 0.08) { [weak self] in
-                        guard let self, self.handle != nil else { return }
-                        self.setOptional("pause", "yes")
-                        self.command("seek", "0", "relative+exact")
-                    }
+            self.setOptional("vo", "null")
+
+            let layer = self.surface
+            DispatchQueue.main.async {
+                if let layer {
+                    CATransaction.begin()
+                    CATransaction.setDisableActions(true)
+                    layer.contentsGravity = .resizeAspect
+                    layer.drawableSize = drawableSize
+                    CATransaction.commit()
+                }
+                self.work.async { [weak self] in
+                    guard let self else { return }
+                    defer { self.isReconfiguringSurface = false }
+                    guard self.handle != nil else { return }
+                    self.setOptional("vo", "gpu-next")
+                    self.reconcileEnhancements(force: true)
                 }
             }
         }

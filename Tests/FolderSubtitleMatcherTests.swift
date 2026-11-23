@@ -49,8 +49,8 @@ final class FolderSubtitleMatcherTests: XCTestCase {
         )
 
         XCTAssertEqual(matched, [
-            "/Series/Severance.S02E02.en.srt",
-            "/Series/Subs/S02E02.VietSub.srt"
+            "/Series/Subs/S02E02.VietSub.srt",
+            "/Series/Severance.S02E02.en.srt"
         ])
     }
 

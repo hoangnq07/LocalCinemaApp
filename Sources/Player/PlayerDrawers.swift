@@ -298,12 +298,13 @@ struct PlayerDrawerContainer: View {
                         .buttonStyle(.plain)
                     }
 
-                    optionRow(title: "Tắt phụ đề chính", selected: primarySubID == nil) {
+                    let anySelected = status.subtitles.contains(where: \.selected)
+                    optionRow(title: "Tắt phụ đề chính", selected: !anySelected && primarySubID == nil) {
                         primarySubID = nil
                         player.selectSubtitle(nil)
                     }
                     ForEach(status.subtitles) { track in
-                        optionRow(title: track.label, selected: track.selected || primarySubID == track.id) {
+                        optionRow(title: track.label, selected: track.selected) {
                             primarySubID = track.id
                             player.selectSubtitle(track.id)
                         }
