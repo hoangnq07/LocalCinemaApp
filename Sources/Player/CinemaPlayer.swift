@@ -333,7 +333,11 @@ struct CinemaPlayer: View {
     }
 
     private var hasActiveEnhancements: Bool {
-        status.neuralUpscalingActive || status.sdrToHDRActive || status.nativeHDRActive || status.interpolationActive
+        status.neuralUpscalingActive
+            || status.sdrToHDRActive
+            || status.nativeHDRActive
+            || status.interpolationActive
+            || status.thermalThrottled
     }
 
     private var activeEnhancementBadges: some View {
@@ -372,6 +376,15 @@ struct CinemaPlayer: View {
                     .background(CinemaStyle.accent.opacity(0.22), in: Capsule())
                     .overlay(Capsule().strokeBorder(CinemaStyle.accent.opacity(0.45), lineWidth: 1))
                     .foregroundStyle(CinemaStyle.accent)
+            }
+            if status.thermalThrottled {
+                Text("Giảm tải nhiệt")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(CinemaStyle.gold.opacity(0.24), in: Capsule())
+                    .overlay(Capsule().strokeBorder(CinemaStyle.gold.opacity(0.45), lineWidth: 1))
+                    .foregroundStyle(CinemaStyle.gold)
             }
             Spacer(minLength: 0)
         }
@@ -621,6 +634,13 @@ struct CinemaPlayer: View {
                     Text("Màu: \(status.stats.colorPrimaries) / \(status.stats.gamma) · Peak \(String(format: "%.2f", status.stats.sigPeak)) · EDR \(String(format: "%.1f×", status.stats.edrHeadroom))")
                     Text("AI/Scaler: \(status.stats.activePassesSummary) · Nội suy: \(status.interpolationActive ? interpolation.shortLabel : "Tắt")")
                     Text("Bộ đệm: \(String(format: "%.1f MB", status.stats.cacheMB)) (\(String(format: "%.1fs", status.stats.cacheAheadSec))) · Drop: \(status.stats.droppedFrames)")
+                    if status.thermalThrottled {
+                        Text("Nhiệt: Đã giảm tải GPU để bảo vệ máy")
+                            .foregroundStyle(CinemaStyle.gold)
+                    } else if status.sdrToHDRBypassedForNativeHDR {
+                        Text("HDR: Nguồn HDR gốc · bỏ qua SDR→HDR")
+                            .foregroundStyle(CinemaStyle.gold)
+                    }
                 }
                 .font(.system(size: 10.5, design: .monospaced))
                 .foregroundStyle(CinemaStyle.accent)

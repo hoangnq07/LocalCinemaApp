@@ -146,6 +146,92 @@ enum InterpolationFPS: String, CaseIterable, Identifiable, Codable, Sendable {
     }
 }
 
+struct EnhancementDecision: Equatable, Sendable {
+    let effectiveUpscaler: VideoUpscaler
+    let effectiveSDRToHDR: SDRtoHDRMode
+    let effectiveInterpolation: MotionInterpolation
+    let effectiveInterpolationFPS: InterpolationFPS
+    let nativeHDRActive: Bool
+    let sdrToHDRBypassedForNativeHDR: Bool
+    let thermalThrottled: Bool
+    let thermalNotice: String?
+}
+
+enum EnhancementPolicy {
+    static func isHDRSource(sigPeak: Double, primaries: String?, gamma: String?) -> Bool {
+        let p = primaries?.lowercased() ?? ""
+        let g = gamma?.lowercased() ?? ""
+        return sigPeak > 1.05 || p == "bt.2020" || g == "pq" || g == "hlg"
+    }
+
+    static func resolve(
+        upscaler: VideoUpscaler,
+        hdrMode: HDRDisplayMode,
+        sdrToHDR: SDRtoHDRMode,
+        interpolation: MotionInterpolation,
+        interpolationFPS: InterpolationFPS,
+        sourceIsHDR: Bool,
+        edrAvailable: Bool,
+        thermalState: ProcessInfo.ThermalState
+    ) -> EnhancementDecision {
+        var effUpscaler = upscaler
+        var effSDRToHDR = sdrToHDR
+        var effInterpolation = interpolation
+        var throttled = false
+        var notice: String?
+
+        switch thermalState {
+        case .serious:
+            if effUpscaler.usesNeuralShader {
+                effUpscaler = .lanczos
+                throttled = true
+            }
+            if effInterpolation != .off {
+                effInterpolation = .off
+                throttled = true
+            }
+            if throttled {
+                notice = "Máy đang nóng · tự hạ AI/Nội suy về Lanczos để giữ ổn định."
+            }
+        case .critical:
+            if effUpscaler != .standard {
+                effUpscaler = .standard
+                throttled = true
+            }
+            if effInterpolation != .off {
+                effInterpolation = .off
+                throttled = true
+            }
+            if effSDRToHDR != .off {
+                effSDRToHDR = .off
+                throttled = true
+            }
+            if throttled {
+                notice = "Nhiệt độ cao · tạm tắt xử lý GPU nặng để bảo vệ máy."
+            }
+        default:
+            break
+        }
+
+        let bypassed = sourceIsHDR && effSDRToHDR != .off
+        if sourceIsHDR {
+            effSDRToHDR = .off
+        }
+        let nativeHDR = sourceIsHDR && hdrMode == .autoEDR && edrAvailable
+
+        return EnhancementDecision(
+            effectiveUpscaler: effUpscaler,
+            effectiveSDRToHDR: effSDRToHDR,
+            effectiveInterpolation: effInterpolation,
+            effectiveInterpolationFPS: interpolationFPS,
+            nativeHDRActive: nativeHDR,
+            sdrToHDRBypassedForNativeHDR: bypassed,
+            thermalThrottled: throttled,
+            thermalNotice: notice
+        )
+    }
+}
+
 enum AspectMode: String, CaseIterable, Identifiable, Codable, Sendable {
     case fit
     case fill

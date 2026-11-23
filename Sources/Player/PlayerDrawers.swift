@@ -122,6 +122,23 @@ struct PlayerDrawerContainer: View {
 
     private var videoDrawer: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if let notice = status.thermalNotice {
+                HStack(spacing: 8) {
+                    Image(systemName: "thermometer.sun.fill")
+                        .foregroundStyle(CinemaStyle.gold)
+                    Text(notice)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(CinemaStyle.gold)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(CinemaStyle.gold.opacity(0.14), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(CinemaStyle.gold.opacity(0.35), lineWidth: 1)
+                )
+            }
+
             VStack(alignment: .leading, spacing: 8) {
                 sectionHeader("Nâng độ phân giải bằng AI (GPU)")
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
@@ -156,7 +173,9 @@ struct PlayerDrawerContainer: View {
                     }
                 }
                 if sdrToHDR != .off {
-                    Text("Đang mở rộng dải sáng lên \(sdrToHDR.targetPeakNits) nit qua libplacebo Inverse Tone Mapping.")
+                    Text(status.sdrToHDRBypassedForNativeHDR
+                         ? "Nguồn đã là HDR gốc — tự động bỏ qua SDR → HDR để giữ màu EDR chuẩn."
+                         : "Đang mở rộng dải sáng lên \(sdrToHDR.targetPeakNits) nit qua libplacebo Inverse Tone Mapping.")
                         .font(.caption2)
                         .foregroundStyle(CinemaStyle.gold)
                 }

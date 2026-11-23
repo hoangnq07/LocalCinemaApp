@@ -69,6 +69,9 @@ struct PlaybackStatus: Equatable {
     var sourceIsHDR = false
     var interpolationActive = false
     var edrAvailable = false
+    var sdrToHDRBypassedForNativeHDR = false
+    var thermalThrottled = false
+    var thermalNotice: String?
     var snapshotMessage: String?
     var stats = PlaybackStats()
     var error: String?
@@ -91,11 +94,24 @@ final class MPVPlayback: ObservableObject {
     private var currentSDRToHDR: SDRtoHDRMode = .off
     private var currentInterpolation: MotionInterpolation = .off
     private var currentInterpolationFPS: InterpolationFPS = .auto
+    private var appliedUpscaler: VideoUpscaler?
+    private var appliedHDRMode: HDRDisplayMode?
+    private var appliedSDRToHDR: SDRtoHDRMode?
+    private var appliedInterpolation: MotionInterpolation?
+    private var appliedInterpolationFPS: InterpolationFPS?
+    private var currentThermalState: ProcessInfo.ThermalState = ProcessInfo.processInfo.thermalState
+    private var thermalObserver: NSObjectProtocol?
     private var edrAvailable = false
     private var screenMaxFPS = 60
     private var pendingExternalSubtitles: [URL] = []
     private var currentTitle = ""
     private var remoteTargetsConfigured = false
+
+    deinit {
+        if let thermalObserver {
+            NotificationCenter.default.removeObserver(thermalObserver)
+        }
+    }
 
     func open(
         _ url: URL,
@@ -188,9 +204,22 @@ final class MPVPlayback: ObservableObject {
                 }
             }
 
-            self.applyUpscaler(config.upscaler)
-            self.applyColorPipeline(hdrMode: config.hdrMode, sdrToHDR: config.sdrToHDR)
-            self.applyInterpolation(config.interpolation, fps: config.interpolationFPS)
+            self.currentUpscaler = config.upscaler
+            self.currentHDRMode = config.hdrMode
+            self.currentSDRToHDR = config.sdrToHDR
+            self.currentInterpolation = config.interpolation
+            self.currentInterpolationFPS = config.interpolationFPS
+            self.currentThermalState = ProcessInfo.processInfo.thermalState
+            if self.thermalObserver == nil {
+                self.thermalObserver = NotificationCenter.default.addObserver(
+                    forName: ProcessInfo.thermalStateDidChangeNotification,
+                    object: nil,
+                    queue: nil
+                ) { [weak self] _ in
+                    self?.work.async { self?.handleThermalStateChange() }
+                }
+            }
+            self.reconcileEnhancements(force: true)
 
             let path = source?.uri ?? (url.isFileURL ? url.path : url.absoluteString)
             self.command("loadfile", path, "replace")
@@ -261,19 +290,32 @@ final class MPVPlayback: ObservableObject {
     // MARK: - AI Upscaling, HDR/SDR-to-HDR & Interpolation Controls
 
     func setUpscaler(_ upscaler: VideoUpscaler) {
-        work.async { self.applyUpscaler(upscaler) }
+        work.async {
+            self.currentUpscaler = upscaler
+            self.reconcileEnhancements()
+        }
     }
 
     func setHDRDisplayMode(_ mode: HDRDisplayMode) {
-        work.async { self.applyColorPipeline(hdrMode: mode, sdrToHDR: self.currentSDRToHDR) }
+        work.async {
+            self.currentHDRMode = mode
+            self.reconcileEnhancements()
+        }
     }
 
     func setSDRtoHDR(_ mode: SDRtoHDRMode) {
-        work.async { self.applyColorPipeline(hdrMode: self.currentHDRMode, sdrToHDR: mode) }
+        work.async {
+            self.currentSDRToHDR = mode
+            self.reconcileEnhancements()
+        }
     }
 
     func setInterpolation(_ mode: MotionInterpolation, fps: InterpolationFPS) {
-        work.async { self.applyInterpolation(mode, fps: fps) }
+        work.async {
+            self.currentInterpolation = mode
+            self.currentInterpolationFPS = fps
+            self.reconcileEnhancements()
+        }
     }
 
     func setDeband(_ enabled: Bool) {
@@ -414,8 +456,49 @@ final class MPVPlayback: ObservableObject {
 
     // MARK: - Private Pipeline Application
 
+    private func handleThermalStateChange() {
+        currentThermalState = ProcessInfo.processInfo.thermalState
+        reconcileEnhancements()
+    }
+
+    private func reconcileEnhancements(force: Bool = false) {
+        let decision = EnhancementPolicy.resolve(
+            upscaler: currentUpscaler,
+            hdrMode: currentHDRMode,
+            sdrToHDR: currentSDRToHDR,
+            interpolation: currentInterpolation,
+            interpolationFPS: currentInterpolationFPS,
+            sourceIsHDR: progress.sourceIsHDR,
+            edrAvailable: edrAvailable,
+            thermalState: currentThermalState
+        )
+
+        if force || appliedUpscaler != decision.effectiveUpscaler {
+            applyUpscaler(decision.effectiveUpscaler)
+            appliedUpscaler = decision.effectiveUpscaler
+        }
+        if force || appliedHDRMode != currentHDRMode || appliedSDRToHDR != decision.effectiveSDRToHDR {
+            applyColorPipeline(hdrMode: currentHDRMode, sdrToHDR: decision.effectiveSDRToHDR)
+            appliedHDRMode = currentHDRMode
+            appliedSDRToHDR = decision.effectiveSDRToHDR
+        }
+        if force
+            || appliedInterpolation != decision.effectiveInterpolation
+            || appliedInterpolationFPS != decision.effectiveInterpolationFPS
+        {
+            applyInterpolation(decision.effectiveInterpolation, fps: decision.effectiveInterpolationFPS)
+            appliedInterpolation = decision.effectiveInterpolation
+            appliedInterpolationFPS = decision.effectiveInterpolationFPS
+        }
+
+        progress.nativeHDRActive = decision.nativeHDRActive
+        progress.sdrToHDRBypassedForNativeHDR = decision.sdrToHDRBypassedForNativeHDR
+        progress.thermalThrottled = decision.thermalThrottled
+        progress.thermalNotice = decision.thermalNotice
+        publish()
+    }
+
     private func applyUpscaler(_ upscaler: VideoUpscaler) {
-        currentUpscaler = upscaler
         progress.neuralUpscalingActive = false
         progress.casSharpenActive = false
         setOptional("scale", upscaler.filter)
@@ -448,9 +531,6 @@ final class MPVPlayback: ObservableObject {
     }
 
     private func applyColorPipeline(hdrMode: HDRDisplayMode, sdrToHDR: SDRtoHDRMode) {
-        currentHDRMode = hdrMode
-        currentSDRToHDR = sdrToHDR
-
         if sdrToHDR != .off {
             setOptional("inverse-tone-mapping", "yes")
             setOptional("hdr-compute-peak", "yes")
@@ -484,9 +564,6 @@ final class MPVPlayback: ObservableObject {
     }
 
     private func applyInterpolation(_ mode: MotionInterpolation, fps: InterpolationFPS) {
-        currentInterpolation = mode
-        currentInterpolationFPS = fps
-
         if mode == .off {
             setOptional("interpolation", "no")
             setOptional("video-sync", "audio")
@@ -566,15 +643,21 @@ final class MPVPlayback: ObservableObject {
         let foundAggregation = passes.contains { $0.localizedCaseInsensitiveContains("aggregation") }
         let foundCAS = passes.contains { $0.localizedCaseInsensitiveContains("cas") }
 
-        progress.neuralUpscalingActive = currentUpscaler.usesNeuralShader && foundAggregation
-        progress.casSharpenActive = (currentUpscaler == .aiCinemaDetail) && foundCAS
-
         let sigPeak = double("video-params/sig-peak")
         let primaries = string("video-params/primaries") ?? "bt.709"
         let gamma = string("video-params/gamma") ?? "bt.1886"
-        let isHDRSource = sigPeak > 1.0 || primaries == "bt.2020" || gamma == "pq" || gamma == "hlg"
-        progress.sourceIsHDR = isHDRSource
-        progress.nativeHDRActive = isHDRSource && currentHDRMode == .autoEDR && edrAvailable && currentSDRToHDR == .off
+        let isHDRSource = EnhancementPolicy.isHDRSource(sigPeak: sigPeak, primaries: primaries, gamma: gamma)
+        let liveThermal = ProcessInfo.processInfo.thermalState
+
+        if isHDRSource != progress.sourceIsHDR || liveThermal != currentThermalState {
+            progress.sourceIsHDR = isHDRSource
+            currentThermalState = liveThermal
+            reconcileEnhancements()
+        }
+
+        let activeUpscaler = appliedUpscaler ?? currentUpscaler
+        progress.neuralUpscalingActive = activeUpscaler.usesNeuralShader && foundAggregation
+        progress.casSharpenActive = (activeUpscaler == .aiCinemaDetail) && foundCAS
 
         var stats = PlaybackStats()
         stats.videoCodec = (string("video-codec") ?? string("video-format") ?? "—").uppercased()
@@ -588,7 +671,10 @@ final class MPVPlayback: ObservableObject {
         stats.edrHeadroom = edrAvailable ? 2.0 : 1.0
         stats.cacheMB = Double(integer("demuxer-cache-state/fw-bytes")) / (1024.0 * 1024.0)
         stats.cacheAheadSec = progress.demuxerCacheDuration
-        stats.activePassesSummary = passes.isEmpty ? currentUpscaler.shortLabel : "\(currentUpscaler.shortLabel) (\(passes.count) passes)"
+        let thermalTag = progress.thermalThrottled ? " · Thermal" : ""
+        stats.activePassesSummary = passes.isEmpty
+            ? "\(activeUpscaler.shortLabel)\(thermalTag)"
+            : "\(activeUpscaler.shortLabel)\(thermalTag) (\(passes.count) passes)"
         progress.stats = stats
     }
 
@@ -694,6 +780,15 @@ final class MPVPlayback: ObservableObject {
     private func finish() {
         timer?.cancel()
         timer = nil
+        if let observer = thermalObserver {
+            NotificationCenter.default.removeObserver(observer)
+            thermalObserver = nil
+        }
+        appliedUpscaler = nil
+        appliedHDRMode = nil
+        appliedSDRToHDR = nil
+        appliedInterpolation = nil
+        appliedInterpolationFPS = nil
         if let handle { mpv_terminate_destroy(handle) }
         handle = nil
         smbSource = nil

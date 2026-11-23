@@ -148,8 +148,10 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(beforeSeconds, 4, "Expected >= 4s elapsed, got '\(timeReadout.label)'")
 
         let pause = app.buttons["Tạm dừng"]
-        if pause.exists { pause.tap() }
-        app.buttons["Lùi 10 giây"].tap()
+        if pause.exists && pause.isHittable { pause.tap() }
+        let rewind = app.buttons["Lùi 10 giây"]
+        XCTAssertTrue(rewind.waitForExistence(timeout: 4), app.debugDescription)
+        rewind.tap()
 
         let expectedMax = max(0, beforeSeconds - 3)
         let rewound = NSPredicate { obj, _ in
