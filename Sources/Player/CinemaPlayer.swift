@@ -310,6 +310,10 @@ struct CinemaPlayer: View {
     private func hudOverlay(size: CGSize) -> some View {
         VStack(spacing: 0) {
             topBar
+            if hasActiveEnhancements {
+                activeEnhancementBadges
+                    .padding(.top, 6)
+            }
             Spacer(minLength: 0)
             centerControls
             Spacer(minLength: 0)
@@ -328,55 +332,67 @@ struct CinemaPlayer: View {
         )
     }
 
+    private var hasActiveEnhancements: Bool {
+        status.neuralUpscalingActive || status.sdrToHDRActive || status.nativeHDRActive || status.interpolationActive
+    }
+
+    private var activeEnhancementBadges: some View {
+        HStack(spacing: 6) {
+            if status.neuralUpscalingActive {
+                Text(status.casSharpenActive ? "FSRCNNX ×2 + CAS đang chạy" : "FSRCNNX ×2 đang chạy")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(CinemaStyle.accent.opacity(0.22), in: Capsule())
+                    .overlay(Capsule().strokeBorder(CinemaStyle.accent.opacity(0.45), lineWidth: 1))
+                    .foregroundStyle(CinemaStyle.accent)
+            }
+            if status.sdrToHDRActive {
+                Text("SDR → HDR")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(CinemaStyle.gold.opacity(0.24), in: Capsule())
+                    .overlay(Capsule().strokeBorder(CinemaStyle.gold.opacity(0.45), lineWidth: 1))
+                    .foregroundStyle(CinemaStyle.gold)
+            } else if status.nativeHDRActive {
+                Text("HDR · EDR")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(CinemaStyle.gold.opacity(0.24), in: Capsule())
+                    .overlay(Capsule().strokeBorder(CinemaStyle.gold.opacity(0.45), lineWidth: 1))
+                    .foregroundStyle(CinemaStyle.gold)
+            }
+            if status.interpolationActive {
+                Text("Nội suy")
+                    .font(.caption2.weight(.bold))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(CinemaStyle.accent.opacity(0.22), in: Capsule())
+                    .overlay(Capsule().strokeBorder(CinemaStyle.accent.opacity(0.45), lineWidth: 1))
+                    .foregroundStyle(CinemaStyle.accent)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
     private var topBar: some View {
         HStack(alignment: .top, spacing: 10) {
             iconButton("Đóng trình phát", icon: "xmark", size: 40) {
                 dismiss()
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(item.displayTitle)
                     .font(.headline.weight(.bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
-                    if let size = status.videoSize {
-                        Text(size)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(CinemaStyle.muted)
-                    }
-                    if status.neuralUpscalingActive {
-                        Text(status.casSharpenActive ? "FSRCNNX ×2 + CAS đang chạy" : "FSRCNNX ×2 đang chạy")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(CinemaStyle.accent.opacity(0.22), in: Capsule())
-                            .foregroundStyle(CinemaStyle.accent)
-                    }
-                    if status.sdrToHDRActive {
-                        Text("SDR → HDR")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(CinemaStyle.gold.opacity(0.24), in: Capsule())
-                            .foregroundStyle(CinemaStyle.gold)
-                    } else if status.nativeHDRActive {
-                        Text("HDR · EDR")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(CinemaStyle.gold.opacity(0.24), in: Capsule())
-                            .foregroundStyle(CinemaStyle.gold)
-                    }
-                    if status.interpolationActive {
-                        Text("Nội suy")
-                            .font(.caption2.weight(.bold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(CinemaStyle.accent.opacity(0.22), in: Capsule())
-                            .foregroundStyle(CinemaStyle.accent)
-                    }
+                if let size = status.videoSize {
+                    Text(size)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(CinemaStyle.muted)
                 }
             }
             .padding(.horizontal, 10)
@@ -474,6 +490,7 @@ struct CinemaPlayer: View {
                             .foregroundStyle(.white)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("player-time-readout")
 
                     Spacer()
 
@@ -549,15 +566,19 @@ struct CinemaPlayer: View {
             }
             hideTask?.cancel()
         } label: {
-            Label(label, systemImage: icon)
-                .font(.caption2.weight(.bold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 8)
-                .background(selected ? CinemaStyle.accent : Color.white.opacity(0.14), in: Capsule())
-                .foregroundStyle(selected ? CinemaStyle.ctaForeground : .white)
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 11, weight: .semibold))
+                Text(label)
+                    .font(.system(size: 11, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 8)
+            .background(selected ? CinemaStyle.accent : Color.white.opacity(0.14), in: Capsule())
+            .foregroundStyle(selected ? CinemaStyle.ctaForeground : .white)
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier(id)
@@ -612,7 +633,7 @@ struct CinemaPlayer: View {
                 .accessibilityIdentifier("player-stats-overlay")
                 Spacer()
             }
-            .padding(.top, 70)
+            .padding(.top, 114)
             .padding(.horizontal, 18)
             Spacer()
         }

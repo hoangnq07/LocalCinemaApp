@@ -109,6 +109,7 @@ struct SMBSourceView: View {
                     .accessibilityIdentifier("smb-user")
                 SecureField("Mật khẩu SMB", text: $password)
                     .focused($focusedField, equals: .password)
+                    .textContentType(.oneTimeCode)
                     .textInputAutocapitalization(.never)
                     .accessibilityIdentifier("smb-password")
                 TextField("Domain hoặc Workgroup (tùy chọn)", text: $domain)

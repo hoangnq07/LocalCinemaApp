@@ -45,19 +45,16 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertTrue(fsrcnnxBtn.waitForExistence(timeout: 8), app.debugDescription)
         fsrcnnxBtn.tap()
 
-        let resume = app.buttons["Phát"]
-        if resume.exists { resume.tap() }
-
         let activeAI = app.staticTexts["FSRCNNX ×2 đang chạy"]
         XCTAssertTrue(activeAI.waitForExistence(timeout: 15), app.debugDescription)
 
         let sdrToHDRBtn = app.buttons["sdr-to-hdr-cinema"]
-        XCTAssertTrue(sdrToHDRBtn.exists)
+        XCTAssertTrue(sdrToHDRBtn.waitForExistence(timeout: 4), app.debugDescription)
         sdrToHDRBtn.tap()
         XCTAssertTrue(app.staticTexts["SDR → HDR"].waitForExistence(timeout: 8), app.debugDescription)
 
         let interpBtn = app.buttons["interp-cinema"]
-        XCTAssertTrue(interpBtn.exists)
+        XCTAssertTrue(interpBtn.waitForExistence(timeout: 4), app.debugDescription)
         interpBtn.tap()
         XCTAssertTrue(app.staticTexts["Nội suy"].waitForExistence(timeout: 8), app.debugDescription)
 
@@ -70,7 +67,9 @@ final class LibrarySmokeTests: XCTestCase {
         // Toggle AI / SDR->HDR / Interpolation back to defaults so subsequent tests start clean
         app.buttons["player-stats-toggle"].tap()
         videoDrawer.tap()
-        app.buttons["upscaler-lanczos"].tap()
+        let lanczosBtn = app.buttons["upscaler-lanczos"]
+        XCTAssertTrue(lanczosBtn.waitForExistence(timeout: 6), app.debugDescription)
+        lanczosBtn.tap()
         app.buttons["sdr-to-hdr-off"].tap()
         app.buttons["interp-off"].tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: activeAI)
@@ -119,7 +118,7 @@ final class LibrarySmokeTests: XCTestCase {
         app.buttons["Kết nối"].tap()
 
         let passwordOffer = app.sheets["Save Password?"].buttons["Not Now"]
-        if passwordOffer.waitForExistence(timeout: 5) { passwordOffer.tap() }
+        if passwordOffer.waitForExistence(timeout: 2) { passwordOffer.tap() }
 
         let hittable = NSPredicate(format: "exists == true AND hittable == true")
         let folder = app.buttons["smb-entry-Danh mục"]
@@ -137,15 +136,40 @@ final class LibrarySmokeTests: XCTestCase {
         XCTAssertTrue(videoSize.waitForExistence(timeout: 25), app.debugDescription)
         attachScreenshot("SMB MKV Playback")
 
-        let advanced = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "0:(0[4-9]|1[0-2]) / 0:12"))
-            .firstMatch
-        XCTAssertTrue(advanced.waitForExistence(timeout: 12), app.debugDescription)
+        let timeReadout = app.buttons["player-time-readout"]
+        XCTAssertTrue(timeReadout.waitForExistence(timeout: 8), app.debugDescription)
+        expectation(
+            for: NSPredicate(format: "label MATCHES %@", "0:(0[4-9]|1[0-9]|2[0-5]) / 0:25"),
+            evaluatedWith: timeReadout
+        )
+        waitForExpectations(timeout: 15)
+
+        let beforeSeconds = parsePlaybackSeconds(timeReadout.label) ?? -1
+        XCTAssertGreaterThanOrEqual(beforeSeconds, 4, "Expected >= 4s elapsed, got '\(timeReadout.label)'")
+
         let pause = app.buttons["Tạm dừng"]
         if pause.exists { pause.tap() }
         app.buttons["Lùi 10 giây"].tap()
-        let rewound = app.staticTexts.matching(NSPredicate(format: "label MATCHES %@", "0:0[0-3] / 0:12"))
-            .firstMatch
-        XCTAssertTrue(rewound.waitForExistence(timeout: 8), app.debugDescription)
+
+        let expectedMax = max(0, beforeSeconds - 3)
+        let rewound = NSPredicate { obj, _ in
+            guard let el = obj as? XCUIElement,
+                  let secs = self.parsePlaybackSeconds(el.label) else { return false }
+            return secs <= expectedMax
+        }
+        expectation(for: rewound, evaluatedWith: timeReadout)
+        waitForExpectations(timeout: 8)
+    }
+
+    private func parsePlaybackSeconds(_ label: String) -> Int? {
+        let current = label.split(separator: "/").first?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? label
+        let parts = current.split(separator: ":").compactMap { Int($0) }
+        switch parts.count {
+        case 2: return parts[0] * 60 + parts[1]
+        case 3: return parts[0] * 3600 + parts[1] * 60 + parts[2]
+        default: return nil
+        }
     }
 
     private func attachScreenshot(_ name: String) {

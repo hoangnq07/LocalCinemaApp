@@ -562,17 +562,9 @@ final class MPVPlayback: ObservableObject {
     }
 
     private func updateEnhancementAndStats() {
-        let count = min(max(Int(integer("vo-passes/fresh/count")), 0), 128)
-        var passes: [String] = []
-        var foundAggregation = false
-        var foundCAS = false
-        for index in 0..<count {
-            if let desc = string("vo-passes/fresh/\(index)/desc") {
-                passes.append(desc)
-                if desc.localizedCaseInsensitiveContains("aggregation") { foundAggregation = true }
-                if desc.localizedCaseInsensitiveContains("cas") { foundCAS = true }
-            }
-        }
+        let passes = voPassDescriptions()
+        let foundAggregation = passes.contains { $0.localizedCaseInsensitiveContains("aggregation") }
+        let foundCAS = passes.contains { $0.localizedCaseInsensitiveContains("cas") }
 
         progress.neuralUpscalingActive = currentUpscaler.usesNeuralShader && foundAggregation
         progress.casSharpenActive = (currentUpscaler == .aiCinemaDetail) && foundCAS
@@ -756,6 +748,51 @@ final class MPVPlayback: ObservableObject {
         guard let handle, let value = mpv_get_property_string(handle, name) else { return nil }
         defer { mpv_free(value) }
         return String(cString: value)
+    }
+
+    private func voPassDescriptions() -> [String] {
+        var node = mpv_node()
+        guard let handle, mpv_get_property(handle, "vo-passes", MPV_FORMAT_NODE, &node) >= 0 else {
+            return []
+        }
+        defer { mpv_free_node_contents(&node) }
+
+        guard node.format == MPV_FORMAT_NODE_MAP,
+              let root = node.u.list?.pointee,
+              root.num > 0,
+              let rootKeys = root.keys,
+              let rootValues = root.values
+        else { return [] }
+
+        var result: [String] = []
+        for i in 0..<Int(root.num) {
+            let key = rootKeys[i].map { String(cString: $0) }
+            guard key == "fresh" || key == "redraw" else { continue }
+            guard rootValues[i].format == MPV_FORMAT_NODE_ARRAY,
+                  let list = rootValues[i].u.list?.pointee,
+                  list.num > 0,
+                  let items = list.values
+            else { continue }
+
+            for j in 0..<Int(list.num) {
+                guard items[j].format == MPV_FORMAT_NODE_MAP,
+                      let passMap = items[j].u.list?.pointee,
+                      passMap.num > 0,
+                      let pKeys = passMap.keys,
+                      let pVals = passMap.values
+                else { continue }
+
+                for k in 0..<Int(passMap.num) {
+                    let pKey = pKeys[k].map { String(cString: $0) }
+                    guard pKey == "desc",
+                          pVals[k].format == MPV_FORMAT_STRING,
+                          let cStr = pVals[k].u.string
+                    else { continue }
+                    result.append(String(cString: cStr))
+                }
+            }
+        }
+        return result
     }
 
     private func command(_ arguments: String...) {

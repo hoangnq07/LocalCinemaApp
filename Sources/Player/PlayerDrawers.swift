@@ -160,15 +160,6 @@ struct PlayerDrawerContainer: View {
                         .font(.caption2)
                         .foregroundStyle(CinemaStyle.gold)
                 }
-
-                sectionHeader("Hiển thị HDR gốc")
-                    .padding(.top, 4)
-                ForEach(HDRDisplayMode.allCases) { mode in
-                    optionRow(title: mode.label, selected: hdrMode == mode) {
-                        hdrMode = mode
-                        player.setHDRDisplayMode(mode)
-                    }
-                }
             }
 
             Divider().overlay(CinemaStyle.border)
@@ -195,6 +186,15 @@ struct PlayerDrawerContainer: View {
                                 player.setInterpolation(interpolation, fps: fps)
                             }
                         }
+                    }
+                }
+
+                sectionHeader("Hiển thị HDR gốc")
+                    .padding(.top, 4)
+                ForEach(HDRDisplayMode.allCases) { mode in
+                    optionRow(title: mode.label, selected: hdrMode == mode) {
+                        hdrMode = mode
+                        player.setHDRDisplayMode(mode)
                     }
                 }
             }
